@@ -1,0 +1,6 @@
+{
+  "name": "AI Assistant",
+  "description": "Smart, general-purpose AI chat assistant powered by Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -5,59 +5,59 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class GeminiRequest(
-    @Json(name = "contents") val contents: List<GeminiContent>,
-    @Json(name = "generationConfig") val generationConfig: GenerationConfig? = null,
-    @Json(name = "systemInstruction") val systemInstruction: GeminiContent? = null
+    @param:Json(name = "contents") val contents: List<GeminiContent>,
+    @param:Json(name = "generationConfig") val generationConfig: GenerationConfig? = null,
+    @param:Json(name = "systemInstruction") val systemInstruction: GeminiContent? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiContent(
-    @Json(name = "role") val role: String? = null,
-    @Json(name = "parts") val parts: List<GeminiPart>
+    @param:Json(name = "role") val role: String? = null,
+    @param:Json(name = "parts") val parts: List<GeminiPart>
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiPart(
-    @Json(name = "text") val text: String? = null,
-    @Json(name = "inlineData") val inlineData: GeminiInlineData? = null
+    @param:Json(name = "text") val text: String? = null,
+    @param:Json(name = "inlineData") val inlineData: GeminiInlineData? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiInlineData(
-    @Json(name = "mimeType") val mimeType: String,
-    @Json(name = "data") val data: String
+    @param:Json(name = "mimeType") val mimeType: String,
+    @param:Json(name = "data") val data: String
 )
 
 @JsonClass(generateAdapter = true)
 data class ImageConfig(
-    @Json(name = "aspectRatio") val aspectRatio: String? = "1:1",
-    @Json(name = "imageSize") val imageSize: String? = "1K"
+    @param:Json(name = "aspectRatio") val aspectRatio: String? = "1:1",
+    @param:Json(name = "imageSize") val imageSize: String? = "1K"
 )
 
 @JsonClass(generateAdapter = true)
 data class GenerationConfig(
-    @Json(name = "temperature") val temperature: Float? = null,
-    @Json(name = "topP") val topP: Float? = null,
-    @Json(name = "topK") val topK: Int? = null,
-    @Json(name = "responseModalities") val responseModalities: List<String>? = null,
-    @Json(name = "imageConfig") val imageConfig: ImageConfig? = null
+    @param:Json(name = "temperature") val temperature: Float? = null,
+    @param:Json(name = "topP") val topP: Float? = null,
+    @param:Json(name = "topK") val topK: Int? = null,
+    @param:Json(name = "responseModalities") val responseModalities: List<String>? = null,
+    @param:Json(name = "imageConfig") val imageConfig: ImageConfig? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiResponse(
-    @Json(name = "candidates") val candidates: List<GeminiCandidate>? = null,
-    @Json(name = "error") val error: GeminiError? = null
+    @param:Json(name = "candidates") val candidates: List<GeminiCandidate>? = null,
+    @param:Json(name = "error") val error: GeminiError? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiCandidate(
-    @Json(name = "content") val content: GeminiContent? = null,
-    @Json(name = "finishReason") val finishReason: String? = null
+    @param:Json(name = "content") val content: GeminiContent? = null,
+    @param:Json(name = "finishReason") val finishReason: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiError(
-    @Json(name = "code") val code: Int? = null,
-    @Json(name = "message") val message: String? = null,
-    @Json(name = "status") val status: String? = null
+    @param:Json(name = "code") val code: Int? = null,
+    @param:Json(name = "message") val message: String? = null,
+    @param:Json(name = "status") val status: String? = null
 )

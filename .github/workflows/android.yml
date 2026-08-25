@@ -133,30 +133,33 @@ jobs:
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: app-release-artifacts
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: ignore
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: unit-test-reports
           path: app/build/reports/tests/
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore
 
       - name: Create GitHub Release on Tag

@@ -17,6 +17,11 @@ on:
           - 'debug'
           - 'release'
           - 'all'
+      upload_artifacts:
+        description: 'Upload build artifacts (disable if account storage quota is full)'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

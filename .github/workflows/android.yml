@@ -130,10 +130,10 @@ jobs:
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/debug.keystore
           STORE_PASSWORD: android
+          KEY_ALIAS: androiddebugkey
           KEY_PASSWORD: android
         run: |
-          # Build release bundle & APK (fallback signing with keystore for CI verification)
-          ./gradlew bundleRelease assembleRelease --stacktrace || true
+          ./gradlew bundleRelease assembleRelease --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

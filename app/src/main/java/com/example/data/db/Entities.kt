@@ -21,7 +21,10 @@ data class ChatMessageEntity(
     val role: String, // "user" or "model"
     val message: String,
     val persona: String = "GENERAL",
-    val imageUrl: String? = null, // Local file path or base64 data for generated images
+    val imageUrl: String? = null, // Local file path, URI, or base64 data for image
+    val videoUrl: String? = null, // Local file path or URI for video
+    val mediaType: String? = null, // "IMAGE", "VIDEO", null
+    val mediaFileName: String? = null,
     val isImagePrompt: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
@@ -38,6 +41,7 @@ data class CollectionEntity(
     val status: String, // "PLANNING", "SAMPLING", "PRODUCTION", "LAUNCHED"
     val notes: String,
     val aiStrategyNotes: String = "",
+    val imageUrl: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -55,6 +59,7 @@ data class PricingSkuEntity(
     val wholesalePrice: Double,
     val profitPerUnit: Double,
     val marginPercentage: Double,
+    val imageUrl: String? = null,
     val aiCritique: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )

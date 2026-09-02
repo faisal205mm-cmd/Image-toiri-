@@ -193,6 +193,54 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedAspectRatio = MutableStateFlow("1:1")
     val selectedAspectRatio: StateFlow<String> = _selectedAspectRatio.asStateFlow()
 
+    data class AttachedMediaInfo(
+        val uriString: String,
+        val localFilePath: String,
+        val fileName: String,
+        val mimeType: String,
+        val isVideo: Boolean,
+        val sizeBytes: Long
+    )
+
+    private val _attachedMedia = MutableStateFlow<AttachedMediaInfo?>(null)
+    val attachedMedia: StateFlow<AttachedMediaInfo?> = _attachedMedia.asStateFlow()
+
+    fun attachMediaUri(uri: android.net.Uri, context: android.content.Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = com.example.data.util.MediaUtils.saveUriToInternalStorage(context, uri)
+            if (result != null) {
+                _attachedMedia.value = AttachedMediaInfo(
+                    uriString = uri.toString(),
+                    localFilePath = result.file.absolutePath,
+                    fileName = result.fileName,
+                    mimeType = result.mimeType,
+                    isVideo = result.isVideo,
+                    sizeBytes = result.sizeBytes
+                )
+            }
+        }
+    }
+
+    fun attachBitmap(bitmap: android.graphics.Bitmap, context: android.content.Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = com.example.data.util.MediaUtils.saveBitmapToInternalStorage(context, bitmap)
+            if (result != null) {
+                _attachedMedia.value = AttachedMediaInfo(
+                    uriString = result.file.toURI().toString(),
+                    localFilePath = result.file.absolutePath,
+                    fileName = result.fileName,
+                    mimeType = result.mimeType,
+                    isVideo = false,
+                    sizeBytes = result.sizeBytes
+                )
+            }
+        }
+    }
+
+    fun removeAttachedMedia() {
+        _attachedMedia.value = null
+    }
+
     fun toggleImageMode(enabled: Boolean? = null) {
         _isImageMode.value = enabled ?: !_isImageMode.value
     }
@@ -202,12 +250,14 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun sendChatMessage(prompt: String? = null, forceImageMode: Boolean? = null) {
+        val media = _attachedMedia.value
         val textToSend = (prompt ?: _chatInput.value).trim()
-        if (textToSend.isBlank() || _isChatLoading.value) return
+        if ((textToSend.isBlank() && media == null) || _isChatLoading.value) return
 
         if (prompt == null) {
             _chatInput.value = ""
         }
+        _attachedMedia.value = null
 
         val effectiveImageMode = forceImageMode ?: _isImageMode.value
 
@@ -221,7 +271,11 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
                     userPrompt = textToSend,
                     history = currentHistory,
                     isImageMode = effectiveImageMode,
-                    aspectRatio = _selectedAspectRatio.value
+                    aspectRatio = _selectedAspectRatio.value,
+                    attachedFilePath = media?.localFilePath,
+                    attachedMimeType = media?.mimeType,
+                    attachedFileName = media?.fileName,
+                    attachedIsVideo = media?.isVideo ?: false
                 )
                 if (_currentSessionId.value == null) {
                     _currentSessionId.value = createdOrActiveId
@@ -230,6 +284,10 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
                 _isChatLoading.value = false
             }
         }
+    }
+
+    fun retryMessage(prompt: String, isImagePrompt: Boolean = false) {
+        sendChatMessage(prompt = prompt, forceImageMode = if (isImagePrompt) true else null)
     }
 
     fun clearCurrentChat() {

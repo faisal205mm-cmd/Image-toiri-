@@ -101,7 +101,7 @@ object GeminiErrorParser {
                     GeminiErrorInfo(
                         errorType = GeminiErrorType.QUOTA_EXCEEDED,
                         title = "Rate Limit / Quota Exceeded (HTTP 429)",
-                        message = "You have exceeded your Gemini API rate limit or quota. Please wait a moment before trying again.",
+                        message = serverMessage ?: "Google AI Studio rate limit reached (RESOURCE_EXHAUSTED). Free tier allows limited requests per minute.",
                         httpCode = 429,
                         rawMessage = serverMessage ?: rawErrorBody
                     )
@@ -160,10 +160,11 @@ object GeminiClient {
     const val MODEL_FLASH = "gemini-3.5-flash"
     const val MODEL_PRO = "gemini-3.1-pro-preview"
     const val MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
+    const val MODEL_IMAGE_PRIMARY = "gemini-2.5-flash-image"
     const val MODEL_IMAGE_LATEST = "gemini-3.1-flash-image-preview"
     const val MODEL_IMAGE_PRO = "gemini-3-pro-image-preview"
     const val MODEL_IMAGE_FALLBACK = "gemini-2.5-flash-image"
-    const val MODEL_IMAGE = "gemini-3.1-flash-image-preview"
+    const val MODEL_IMAGE = "gemini-2.5-flash-image"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC

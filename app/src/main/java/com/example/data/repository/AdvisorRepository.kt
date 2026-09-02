@@ -9,6 +9,7 @@ import com.example.data.api.GeminiContent
 import com.example.data.api.GeminiErrorInfo
 import com.example.data.api.GeminiErrorParser
 import com.example.data.api.GeminiErrorType
+import com.example.data.api.GeminiInlineData
 import com.example.data.api.GeminiPart
 import com.example.data.api.GeminiRequest
 import com.example.data.api.GenerationConfig
@@ -286,51 +287,82 @@ No active Gemini API key was detected. To generate AI images:
 
         var savedImagePath: String? = null
         var modelMessageText: String
-        var usedModel = GeminiClient.MODEL_IMAGE_LATEST
+        val imageCandidateModels = listOf(
+            GeminiClient.MODEL_IMAGE_PRIMARY, // gemini-2.5-flash-image
+            GeminiClient.MODEL_IMAGE_LATEST,  // gemini-3.1-flash-image-preview
+            GeminiClient.MODEL_IMAGE_PRO      // gemini-3-pro-image-preview
+        )
 
-        try {
-            val response = try {
-                apiService.generateContent(
-                    model = GeminiClient.MODEL_IMAGE_LATEST,
-                    apiKey = apiKey,
-                    request = request
-                )
-            } catch (e: Exception) {
-                val parsed = GeminiErrorParser.parse(e)
-                if (parsed.errorType == GeminiErrorType.NOT_FOUND || parsed.errorType == GeminiErrorType.BAD_REQUEST) {
-                    usedModel = GeminiClient.MODEL_IMAGE_FALLBACK
-                    apiService.generateContent(
-                        model = GeminiClient.MODEL_IMAGE_FALLBACK,
+        var lastException: Exception? = null
+        var successfulResponse: com.example.data.api.GeminiResponse? = null
+        var usedModelName = GeminiClient.MODEL_IMAGE_PRIMARY
+
+        // Attempt generation with retry and multi-model fallback
+        for (model in imageCandidateModels) {
+            for (attempt in 1..2) {
+                try {
+                    val response = apiService.generateContent(
+                        model = model,
                         apiKey = apiKey,
                         request = request
                     )
-                } else {
-                    throw e
+                    val candidate = response.candidates?.firstOrNull()
+                    val parts = candidate?.content?.parts ?: emptyList()
+                    val hasImage = parts.any { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
+                    if (hasImage || parts.any { !it.text.isNullOrBlank() }) {
+                        successfulResponse = response
+                        usedModelName = model
+                        lastException = null
+                        break
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    val parsed = GeminiErrorParser.parse(e)
+                    if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
+                        // Rate limit / 429 hit - back off briefly before retrying or switching models
+                        kotlinx.coroutines.delay(1500L * attempt)
+                    } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                        // Unrecoverable with key, break early
+                        break
+                    } else {
+                        // Transient or model specific error, back off and try next
+                        kotlinx.coroutines.delay(800L)
+                    }
                 }
             }
-            val candidate = response.candidates?.firstOrNull()
-            val parts = candidate?.content?.parts ?: emptyList()
-            val imagePart = parts.firstOrNull { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
-            val textPart = parts.firstOrNull { !it.text.isNullOrBlank() }?.text
-
-            if (imagePart?.inlineData != null) {
-                try {
-                    val bytes = Base64.decode(imagePart.inlineData.data, Base64.DEFAULT)
-                    val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
-                    val ext = if (imagePart.inlineData.mimeType.contains("jpeg") || imagePart.inlineData.mimeType.contains("jpg")) "jpg" else "png"
-                    val file = File(imagesDir, "img_${System.currentTimeMillis()}_${(100..999).random()}.$ext")
-                    file.writeBytes(bytes)
-                    savedImagePath = file.absolutePath
-                } catch (_: Exception) {
-                    savedImagePath = "data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}"
-                }
+            if (successfulResponse != null || lastException?.let { GeminiErrorParser.parse(it).errorType == GeminiErrorType.INVALID_API_KEY } == true) {
+                break
             }
+        }
 
-            modelMessageText = when {
-                savedImagePath != null && !textPart.isNullOrBlank() -> textPart
-                savedImagePath != null -> "🎨 **Visual Created (Gemini 3.1 Flash Image)**\n\nPrompt: *$cleanPrompt*"
-                !textPart.isNullOrBlank() -> textPart
-                else -> "🎨 Image generated successfully."
+        try {
+            if (successfulResponse != null) {
+                val candidate = successfulResponse.candidates?.firstOrNull()
+                val parts = candidate?.content?.parts ?: emptyList()
+                val imagePart = parts.firstOrNull { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
+                val textPart = parts.firstOrNull { !it.text.isNullOrBlank() }?.text
+
+                if (imagePart?.inlineData != null) {
+                    try {
+                        val bytes = Base64.decode(imagePart.inlineData.data, Base64.DEFAULT)
+                        val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
+                        val ext = if (imagePart.inlineData.mimeType.contains("jpeg") || imagePart.inlineData.mimeType.contains("jpg")) "jpg" else "png"
+                        val file = File(imagesDir, "img_${System.currentTimeMillis()}_${(100..999).random()}.$ext")
+                        file.writeBytes(bytes)
+                        savedImagePath = file.absolutePath
+                    } catch (_: Exception) {
+                        savedImagePath = "data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}"
+                    }
+                }
+
+                modelMessageText = when {
+                    savedImagePath != null && !textPart.isNullOrBlank() -> textPart
+                    savedImagePath != null -> "🎨 **Visual Created ($usedModelName)**\n\nPrompt: *$cleanPrompt*"
+                    !textPart.isNullOrBlank() -> textPart
+                    else -> "🎨 Image generated successfully."
+                }
+            } else {
+                throw (lastException ?: Exception("Image generation failed. Please try again."))
             }
         } catch (e: Exception) {
             val parsed = GeminiErrorParser.parse(e)
@@ -339,22 +371,28 @@ No active Gemini API key was detected. To generate AI images:
 ⚠️ **Gemini API Error: Invalid API Key**
 
 The API key used was rejected by Google AI Studio (`HTTP 400`).
-Please verify or update your key in the drawer menu.
+Please verify or update your key in the drawer menu (☰).
 """.trimIndent()
                 GeminiErrorType.QUOTA_EXCEEDED -> """
-⚠️ **Gemini API Error: Rate Limit Exceeded (`HTTP 429`)**
+⚠️ **Gemini API Error: Rate Limit / Quota Exceeded (`HTTP 429`)**
 
-Image generation quota reached. Please wait 30–60 seconds before requesting again.
+**কারণ (Cause):**
+Google AI Studio-এর ফ্রি টায়ারে ইমেজ জেনারেশন মডেলের জন্য প্রতি মিনিটে রিকোয়েস্ট লিমিট (2–5 Requests Per Minute) অথবা দৈনিক কোটা শেষ হয়েছে।
+
+**সমাধান (Solutions):**
+1. ⏳ **অপেক্ষা করুন:** ৩০–৬০ সেকেন্ড পর নিচের **Retry** বাটনে ট্যাপ করুন।
+2. 🔑 **নতুন API Key:** [Google AI Studio (aistudio.google.com)](https://aistudio.google.com/app/apikey) থেকে একটি নতুন ফ্রি API Key নিয়ে ড্রয়ার মেনুতে সেট করুন।
+3. 💳 **Pay-as-you-go:** Google Cloud প্রজেক্টে বিলিং যোগ করলে আনলিমিটেড কোটা পাওয়া যায়।
 """.trimIndent()
                 GeminiErrorType.PERMISSION_DENIED -> """
 ⚠️ **Gemini API Error: Permission Denied (`HTTP 403`)**
 
-Ensure your API key has Generative Language API access enabled.
+Ensure your API key has Generative Language API access enabled in Google Cloud / AI Studio.
 """.trimIndent()
                 GeminiErrorType.NETWORK_ERROR -> """
 ⚠️ **Connection Error**
 
-Could not connect to Gemini image servers. Please check your network connection.
+Could not connect to Gemini image servers. Please check your internet connection.
 """.trimIndent()
                 else -> """
 ⚠️ **Image Generation Error: ${parsed.title}**
@@ -441,7 +479,11 @@ ${parsed.message}
         userPrompt: String,
         history: List<ChatMessageEntity>,
         isImageMode: Boolean = false,
-        aspectRatio: String = "1:1"
+        aspectRatio: String = "1:1",
+        attachedFilePath: String? = null,
+        attachedMimeType: String? = null,
+        attachedFileName: String? = null,
+        attachedIsVideo: Boolean = false
     ): Pair<Long, String> = withContext(Dispatchers.IO) {
         if (isImageMode || isImageGenerationIntent(userPrompt)) {
             return@withContext generateImage(
@@ -453,8 +495,16 @@ ${parsed.message}
         }
 
         val now = System.currentTimeMillis()
+        val displayPrompt = if (userPrompt.isNotBlank()) {
+            userPrompt
+        } else if (attachedIsVideo) {
+            "🎥 [Product Video: ${attachedFileName ?: "Uploaded Video"}]"
+        } else {
+            "🖼️ [Product Photo: ${attachedFileName ?: "Uploaded Photo"}]"
+        }
+
         val activeSessionId = if (sessionId == null || sessionId <= 0L) {
-            val autoTitle = if (userPrompt.length > 36) userPrompt.take(36).trim() + "..." else userPrompt
+            val autoTitle = if (displayPrompt.length > 36) displayPrompt.take(36).trim() + "..." else displayPrompt
             database.chatDao().insertSession(
                 ChatSessionEntity(
                     title = autoTitle,
@@ -462,20 +512,24 @@ ${parsed.message}
                     createdAt = now,
                     updatedAt = now,
                     messageCount = 0,
-                    lastSnippet = userPrompt
+                    lastSnippet = displayPrompt
                 )
             )
         } else {
             sessionId
         }
 
-        // Save User Message
+        // Save User Message with attached media
         database.chatDao().insertMessage(
             ChatMessageEntity(
                 sessionId = activeSessionId,
                 role = "user",
-                message = userPrompt,
+                message = displayPrompt,
                 persona = persona.id,
+                imageUrl = if (!attachedIsVideo) attachedFilePath else null,
+                videoUrl = if (attachedIsVideo) attachedFilePath else null,
+                mediaType = if (attachedFilePath != null) (if (attachedIsVideo) "VIDEO" else "IMAGE") else null,
+                mediaFileName = attachedFileName,
                 timestamp = now
             )
         )
@@ -507,7 +561,7 @@ No active Gemini API key was detected. To get real-time AI responses:
             val count = (existing?.messageCount ?: 0) + 2
             database.chatDao().updateSessionMeta(
                 id = activeSessionId,
-                title = existing?.title ?: userPrompt.take(36),
+                title = existing?.title ?: displayPrompt.take(36),
                 snippet = fallback.take(60),
                 updatedAt = System.currentTimeMillis(),
                 count = count
@@ -528,11 +582,47 @@ No active Gemini API key was detected. To get real-time AI responses:
                 )
             )
         }
-        // Current user message
+
+        // Prepare current user message parts (support multimodal vision if image attached)
+        val userParts = mutableListOf<GeminiPart>()
+
+        if (attachedFilePath != null && !attachedIsVideo) {
+            try {
+                val imageFile = File(attachedFilePath)
+                val base64Data = com.example.data.util.MediaUtils.encodeImageToBase64(imageFile)
+                if (base64Data != null) {
+                    val mime = if (attachedMimeType?.startsWith("image/") == true) attachedMimeType else "image/jpeg"
+                    userParts.add(
+                        GeminiPart(
+                            inlineData = GeminiInlineData(
+                                mimeType = mime,
+                                data = base64Data
+                            )
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        val effectivePromptText = when {
+            userPrompt.isNotBlank() && attachedFilePath != null && attachedIsVideo -> 
+                "[Attached Product Video: ${attachedFileName ?: "Video file"}]\n$userPrompt"
+            userPrompt.isNotBlank() -> userPrompt
+            attachedFilePath != null && !attachedIsVideo -> 
+                "এই কাপড়ের/প্রোডাক্টের ছবি বিশ্লেষণ করে এর ফ্যাব্রিক কোয়ালিটি, ডিজাইন ফিনিশিং, সম্ভাব্য খুচরা ও পাইকারি মূল্য, এবং সোশ্যাল মিডিয়ায় বিক্রির জন্য আকর্ষণীয় ক্যাপশন ও টিপস দিন।"
+            attachedFilePath != null && attachedIsVideo -> 
+                "এই কাপড়ের/প্রোডাক্টের ভিডিওর জন্য উপযোগী মার্কেটিং কৌশল, মূল্য নির্ধারণ ও কাস্টমার এনগেজমেন্ট টিপস দিন।"
+            else -> "Hello"
+        }
+
+        userParts.add(GeminiPart(text = effectivePromptText))
+
         contentsList.add(
             GeminiContent(
                 role = "user",
-                parts = listOf(GeminiPart(text = userPrompt))
+                parts = userParts
             )
         )
 
@@ -549,16 +639,45 @@ No active Gemini API key was detected. To get real-time AI responses:
             systemInstruction = systemInstruction
         )
 
-        val modelText = try {
-            val response = apiService.generateContent(
-                model = GeminiClient.MODEL_FLASH,
-                apiKey = apiKey,
-                request = request
-            )
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                ?: "Unable to generate a response at this time. Please try rephrasing your prompt."
-        } catch (e: Exception) {
-            val parsed = GeminiErrorParser.parse(e)
+        var lastChatException: Exception? = null
+        var chatResponseText: String? = null
+        val chatModels = listOf(GeminiClient.MODEL_FLASH, GeminiClient.MODEL_FLASH_LITE)
+
+        for (m in chatModels) {
+            for (attempt in 1..2) {
+                try {
+                    val response = apiService.generateContent(
+                        model = m,
+                        apiKey = apiKey,
+                        request = request
+                    )
+                    val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (!text.isNullOrBlank()) {
+                        chatResponseText = text
+                        lastChatException = null
+                        break
+                    }
+                } catch (e: Exception) {
+                    lastChatException = e
+                    val parsed = GeminiErrorParser.parse(e)
+                    if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
+                        kotlinx.coroutines.delay(1200L * attempt)
+                    } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                        break
+                    } else {
+                        kotlinx.coroutines.delay(600L)
+                    }
+                }
+            }
+            if (chatResponseText != null || lastChatException?.let { GeminiErrorParser.parse(it).errorType == GeminiErrorType.INVALID_API_KEY } == true) {
+                break
+            }
+        }
+
+        val modelText = if (chatResponseText != null) {
+            chatResponseText
+        } else {
+            val parsed = GeminiErrorParser.parse(lastChatException ?: Exception("Unable to generate response"))
             when (parsed.errorType) {
                 GeminiErrorType.INVALID_API_KEY -> """
 ⚠️ **Gemini API Error: Invalid API Key**
@@ -582,11 +701,12 @@ Access to the Gemini model was rejected.
                 GeminiErrorType.QUOTA_EXCEEDED -> """
 ⚠️ **Gemini API Error: Rate Limit / Quota Exceeded (`HTTP 429`)**
 
-You have temporarily reached the free tier quota limit.
+**কারণ (Cause):**
+Google AI Studio-এর ফ্রি টায়ারে রিকোয়েস্ট লিমিট (RPM) বা দৈনিক কোটা সাময়িকভাবে শেষ হয়েছে।
 
-**How to resolve:**
-• Please wait 30–60 seconds before sending another message.
-• Or provide a Gemini API key with higher billing limits in the drawer settings.
+**সমাধান (Solutions):**
+• ⏳ ৩০–৬০ সেকেন্ড অপেক্ষা করে নিচের **Retry** বাটনে ট্যাপ করুন।
+• 🔑 ড্রয়ার মেনু থেকে নতুন একটি Gemini API Key সেট করুন।
 """.trimIndent()
                 GeminiErrorType.NETWORK_ERROR -> """
 ⚠️ **Connection Error**

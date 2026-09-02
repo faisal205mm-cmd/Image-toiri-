@@ -40,27 +40,12 @@ android {
         keyAlias = "androiddebugkey"
         keyPassword = "android"
       } else {
-        // Fallback to dummy debug configuration so assembleRelease always succeeds
+        // Fallback to debug configuration so assembleRelease always succeeds
         val defaultDebugConfig = signingConfigs.getByName("debug")
-        storeFile = defaultDebugConfig.storeFile ?: rootDebugKeystore
-        storePassword = defaultDebugConfig.storePassword ?: "android"
-        keyAlias = defaultDebugConfig.keyAlias ?: "androiddebugkey"
-        keyPassword = defaultDebugConfig.keyPassword ?: "android"
-      }
-    }
-    create("debugConfig") {
-      val rootDebugKeystore = file("${rootDir}/debug.keystore")
-      if (rootDebugKeystore.exists()) {
-        storeFile = rootDebugKeystore
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      } else {
-        val defaultDebugConfig = signingConfigs.getByName("debug")
-        storeFile = defaultDebugConfig.storeFile ?: rootDebugKeystore
-        storePassword = defaultDebugConfig.storePassword ?: "android"
-        keyAlias = defaultDebugConfig.keyAlias ?: "androiddebugkey"
-        keyPassword = defaultDebugConfig.keyPassword ?: "android"
+        storeFile = defaultDebugConfig.storeFile
+        storePassword = defaultDebugConfig.storePassword
+        keyAlias = defaultDebugConfig.keyAlias
+        keyPassword = defaultDebugConfig.keyPassword
       }
     }
   }
@@ -72,7 +57,9 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debug")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

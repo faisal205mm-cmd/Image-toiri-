@@ -11,9 +11,11 @@ import androidx.room.RoomDatabase
         ChatMessageEntity::class,
         CollectionEntity::class,
         PricingSkuEntity::class,
-        BrandProfileEntity::class
+        BrandProfileEntity::class,
+        SaleRecordEntity::class,
+        MonthlyFinanceEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -21,6 +23,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun collectionDao(): CollectionDao
     abstract fun pricingDao(): PricingDao
     abstract fun brandDao(): BrandDao
+    abstract fun saleDao(): SaleDao
+    abstract fun monthlyFinanceDao(): MonthlyFinanceDao
 
     companion object {
         @Volatile

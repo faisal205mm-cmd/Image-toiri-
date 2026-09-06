@@ -77,3 +77,34 @@ data class BrandProfileEntity(
     val lastDiagnosticReport: String = "",
     val lastUpdated: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "sales_records")
+data class SaleRecordEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val invoiceNumber: String,
+    val customerName: String = "",
+    val customerPhone: String = "",
+    val itemsSummary: String, // e.g. "Cotton Sharee (Free Size) x 1, Panjabi (L) x 2"
+    val itemsCount: Int = 1,
+    val subtotal: Double,
+    val discount: Double = 0.0,
+    val totalAmount: Double,
+    val paidAmount: Double,
+    val dueAmount: Double = 0.0,
+    val paymentMethod: String = "CASH", // "CASH", "BKASH", "NAGAD", "CARD", "DUE"
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "monthly_finances")
+data class MonthlyFinanceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val type: String, // "SALE", "EXPENSE", "DEBT_PAY", "PRODUCT_BUY"
+    val title: String, // e.g. "মাসিক বিক্রির আয়", "দোকান ভাড়া", "সাপ্লায়ার দেনা পরিশোধ", "পাইকারি থান কাপড় ক্রয়"
+    val amount: Double,
+    val category: String = "", // e.g. "Retail", "Rent", "EMI", "Raw Materials"
+    val monthYear: String = "", // e.g. "September 2026"
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+

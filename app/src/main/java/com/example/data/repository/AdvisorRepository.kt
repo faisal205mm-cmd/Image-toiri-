@@ -20,6 +20,9 @@ import com.example.data.db.ChatMessageEntity
 import com.example.data.db.ChatSessionEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.PricingSkuEntity
+import com.example.data.db.SaleRecordEntity
+import com.example.data.db.MonthlyFinanceEntity
+import com.example.data.firebase.SaleFirestoreManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -965,4 +968,70 @@ Format your report as follows:
     suspend fun saveBrandProfile(profile: BrandProfileEntity) = withContext(Dispatchers.IO) {
         database.brandDao().saveProfile(profile)
     }
+
+    // Sales Records access & Firebase Firestore integration
+    private val firestoreManager: SaleFirestoreManager = SaleFirestoreManager.getInstance()
+
+    fun getFirestoreManager(): SaleFirestoreManager = firestoreManager
+
+    fun getAllSales(): Flow<List<SaleRecordEntity>> = database.saleDao().getAllSales()
+
+    suspend fun saveSale(sale: SaleRecordEntity): Long = withContext(Dispatchers.IO) {
+        val insertedId = database.saleDao().insertSale(sale)
+        val savedSale = if (sale.id == 0L) sale.copy(id = insertedId) else sale
+
+        // Store sale record in Firebase Firestore
+        try {
+            firestoreManager.saveSale(savedSale) { success, errorMsg ->
+                if (!success) {
+                    android.util.Log.w("AdvisorRepository", "Firestore store notice: $errorMsg")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AdvisorRepository", "Firestore store caught: ${e.message}")
+        }
+
+        insertedId
+    }
+
+    suspend fun deleteSale(id: Long) = withContext(Dispatchers.IO) {
+        database.saleDao().deleteSaleById(id)
+    }
+
+    fun getSalesCount(): Flow<Int> = database.saleDao().getSalesCount()
+    fun getTotalRevenue(): Flow<Double?> = database.saleDao().getTotalRevenue()
+
+    // Monthly Finances (Sale, Expense, DEBT Pay, Product Buy)
+    fun getAllFinances(): Flow<List<MonthlyFinanceEntity>> = database.monthlyFinanceDao().getAllFinances()
+
+    fun getFinancesByType(type: String): Flow<List<MonthlyFinanceEntity>> =
+        database.monthlyFinanceDao().getFinancesByType(type)
+
+    fun getTotalFinanceByType(type: String): Flow<Double?> =
+        database.monthlyFinanceDao().getTotalByType(type)
+
+    suspend fun saveFinance(finance: MonthlyFinanceEntity): Long = withContext(Dispatchers.IO) {
+        val insertedId = database.monthlyFinanceDao().insertFinance(finance)
+        val saved = if (finance.id == 0L) finance.copy(id = insertedId) else finance
+        try {
+            firestoreManager.saveMonthlyFinance(saved) { _, _ -> }
+        } catch (e: Exception) {
+            android.util.Log.w("AdvisorRepository", "Firestore save finance error: ${e.message}")
+        }
+        insertedId
+    }
+
+    suspend fun deleteFinance(id: Long, type: String) = withContext(Dispatchers.IO) {
+        database.monthlyFinanceDao().deleteFinanceById(id)
+        try {
+            firestoreManager.deleteMonthlyFinance(id, type)
+        } catch (e: Exception) {
+            android.util.Log.w("AdvisorRepository", "Firestore delete finance error: ${e.message}")
+        }
+    }
+
+    suspend fun clearAllFinances() = withContext(Dispatchers.IO) {
+        database.monthlyFinanceDao().clearAllFinances()
+    }
 }
+

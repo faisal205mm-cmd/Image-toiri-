@@ -9,6 +9,8 @@ import com.example.data.db.ChatMessageEntity
 import com.example.data.db.ChatSessionEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.PricingSkuEntity
+import com.example.data.db.SaleRecordEntity
+import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.repository.AdvisorPersona
 import com.example.data.repository.AdvisorRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,8 +19,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+enum class MainAppTab(val title: String, val bnTitle: String) {
+    AI_CHAT("AI Chat", "AI চ্যাট"),
+    NEW_SALE("Sale", "Sale"),
+    FIREBASE_DB("Firebase DB", "ফায়ারবেস DB")
+}
 
 enum class AppTab(val title: String, val icon: String) {
     ADVISOR_CHAT("AI Advisor", "chat"),
@@ -95,11 +104,219 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Navigation
+    private val _selectedMainTab = MutableStateFlow(MainAppTab.AI_CHAT)
+    val selectedMainTab: StateFlow<MainAppTab> = _selectedMainTab.asStateFlow()
+
+    fun selectMainTab(tab: MainAppTab) {
+        _selectedMainTab.value = tab
+    }
+
     private val _currentTab = MutableStateFlow(AppTab.ADVISOR_CHAT)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
 
     fun selectTab(tab: AppTab) {
         _currentTab.value = tab
+    }
+
+    // --- Sales Records ---
+    val allSales: StateFlow<List<SaleRecordEntity>> = repository.getAllSales()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun saveNewSale(sale: SaleRecordEntity, onComplete: ((Long) -> Unit)? = null) {
+        viewModelScope.launch {
+            val id = repository.saveSale(sale)
+            onComplete?.invoke(id)
+        }
+    }
+
+    fun deleteSale(id: Long) {
+        viewModelScope.launch {
+            repository.deleteSale(id)
+        }
+    }
+
+    fun askAiAboutSale(sale: SaleRecordEntity) {
+        val prompt = "আমি একটি নতুন বিক্রির হিসাব করেছি:\n" +
+                "ইনভয়েস: ${sale.invoiceNumber}\n" +
+                "ক্রেতা: ${if (sale.customerName.isNotBlank()) sale.customerName else "সাধারণ কাস্টমার"}\n" +
+                "আইটেম: ${sale.itemsSummary}\n" +
+                "মোট টাকা: ৳${sale.totalAmount.toInt()}, পেইড: ৳${sale.paidAmount.toInt()}, বাকি: ৳${sale.dueAmount.toInt()}\n" +
+                "পেমেন্ট মেথড: ${sale.paymentMethod}\n" +
+                "এই বিক্রির ওপর ভিত্তি করে লাভ বাড়ানো এবং আরও বিক্রি বৃদ্ধির জন্য ৩টি প্রফেশনাল পরামর্শ দিন।"
+        selectMainTab(MainAppTab.AI_CHAT)
+        sendChatMessage(prompt)
+    }
+
+    // --- Firebase Firestore ---
+    fun getFirestoreManager() = repository.getFirestoreManager()
+
+    private val _firestoreSyncStatus = MutableStateFlow<String?>("সংযুক্ত (Connected)")
+    val firestoreSyncStatus: StateFlow<String?> = _firestoreSyncStatus.asStateFlow()
+
+    fun syncAllSalesToFirestore(onResult: ((Int, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _firestoreSyncStatus.value = "সিঙ্ক হচ্ছে (Syncing)..."
+            val sales = allSales.value
+            var count = 0
+            sales.forEach { sale ->
+                repository.getFirestoreManager().saveSale(sale)
+                count++
+            }
+            _firestoreSyncStatus.value = "সফলভাবে $count টি রেকর্ড ক্লাউডে সিঙ্ক হয়েছে"
+            onResult?.invoke(count, "$count টি বিক্রির রেকর্ড Firebase Firestore এ সংরক্ষিত হয়েছে")
+        }
+    }
+
+    // --- Monthly Finances (Sale, Expense, DEBT Pay, Product Buy) ---
+    val allFinances: StateFlow<List<MonthlyFinanceEntity>> = repository.getAllFinances()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val monthlySales: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+        list.filter { it.type == "SALE" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlyExpenses: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+        list.filter { it.type == "EXPENSE" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlyDebtPays: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+        list.filter { it.type == "DEBT_PAY" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlyProductBuys: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+        list.filter { it.type == "PRODUCT_BUY" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalMonthlySale: StateFlow<Double> = monthlySales.map { list ->
+        list.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalMonthlyExpense: StateFlow<Double> = monthlyExpenses.map { list ->
+        list.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalMonthlyDebtPay: StateFlow<Double> = monthlyDebtPays.map { list ->
+        list.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalMonthlyProductBuy: StateFlow<Double> = monthlyProductBuys.map { list ->
+        list.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val netBalance: StateFlow<Double> = allFinances.map { list ->
+        val sale = list.filter { it.type == "SALE" }.sumOf { it.amount }
+        val exp = list.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+        val debt = list.filter { it.type == "DEBT_PAY" }.sumOf { it.amount }
+        val buy = list.filter { it.type == "PRODUCT_BUY" }.sumOf { it.amount }
+        sale - (exp + debt + buy)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    fun addMonthlyFinance(
+        type: String, // "SALE", "EXPENSE", "DEBT_PAY", "PRODUCT_BUY"
+        title: String,
+        amount: Double,
+        category: String = "",
+        note: String = "",
+        monthYear: String = "September 2026",
+        onComplete: ((Long) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val entity = MonthlyFinanceEntity(
+                type = type,
+                title = title.ifBlank {
+                    when (type) {
+                        "SALE" -> "মাসিক বিক্রি"
+                        "EXPENSE" -> "মাসিক খরচ"
+                        "DEBT_PAY" -> "ঋণ পরিশোধ"
+                        "PRODUCT_BUY" -> "পণ্য ক্রয়"
+                        else -> "আর্থিক এন্ট্রি"
+                    }
+                },
+                amount = amount,
+                category = category,
+                monthYear = monthYear,
+                note = note
+            )
+            val id = repository.saveFinance(entity)
+            onComplete?.invoke(id)
+        }
+    }
+
+    fun deleteMonthlyFinance(id: Long, type: String) {
+        viewModelScope.launch {
+            repository.deleteFinance(id, type)
+        }
+    }
+
+    fun askAiAboutFinances(analysisType: String = "ALL") {
+        val sale = totalMonthlySale.value
+        val expense = totalMonthlyExpense.value
+        val debt = totalMonthlyDebtPay.value
+        val buy = totalMonthlyProductBuy.value
+        val net = sale - (expense + debt + buy)
+        val profitMargin = if (sale > 0) ((net / sale) * 100).toInt() else 0
+
+        val salesList = monthlySales.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
+        val expensesList = monthlyExpenses.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
+        val debtList = monthlyDebtPays.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
+        val buyList = monthlyProductBuys.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
+
+        val prompt = when (analysisType) {
+            "EXPENSE_REDUCE" -> """
+                আমার এই মাসের খরচের বিশদ হিসাব:
+                - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
+                - মোট খরচ (Monthly Expense): ৳${expense.toInt()} ${if (expensesList.isNotBlank()) "($expensesList)" else ""}
+                - পণ্যের ক্রয় (Product Buy): ৳${buy.toInt()}
+                - নিট ব্যালেন্স: ৳${net.toInt()}
+
+                আমার এই খরচের তথ্য পর্যালোচনা করে কীভাবে অহেতুক খরচ কমিয়ে নিট প্রফিট বাড়ানো যায়, তার ৫টি বাস্তবসম্মত কৌশল বাংলায় পয়েন্ট আকারে দিন।
+            """.trimIndent()
+
+            "DEBT_STRATEGY" -> """
+                আমার এই মাসের দেনা ও ঋণ পরিশোধের চিত্র:
+                - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
+                - এই মাসে ঋণ পরিশোধ (Monthly DEBT Pay): ৳${debt.toInt()} ${if (debtList.isNotBlank()) "($debtList)" else ""}
+                - বর্তমান ক্যাশ ব্যালেন্স: ৳${net.toInt()}
+
+                আমার এই বিক্রির আয়ের সাথে ঋণ পরিশোধের অনুপাত বিশ্লেষণ করে কীভাবে দ্রুত ও ঝুঁকিমুক্তভাবে ঋণমুক্ত হওয়া যায় এবং ব্যবসার ক্যাশফ্লো ঠিক রাখা যায়, তার একটি কার্যকর রোডম্যাপ দিন।
+            """.trimIndent()
+
+            "PRODUCT_BUY_STRATEGY" -> """
+                আমার এই মাসের পণ্য ক্রয় ও ইনভেন্টরির হিসাব:
+                - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
+                - পণ্য ক্রয় (Product Buy): ৳${buy.toInt()} ${if (buyList.isNotBlank()) "($buyList)" else ""}
+                - বর্তমান নিট ক্যাশ: ৳${net.toInt()}
+
+                বিক্রির কত শতাংশ পরবর্তী মাসের জন্য নতুন পণ্য বা স্টক ক্রয়ে রি-ইনভেস্ট করা উচিত এবং কীভাবে ডেড স্টক এড়িয়ে সর্বোচ্চ লাভ নিশ্চিত করা যায়, তা পরামর্শ দিন।
+            """.trimIndent()
+
+            else -> """
+                আমার পোশাক/ব্যবসার এই মাসের সার্বিক আর্থিক প্রতিবেদন নিম্নরূপ:
+                1. 💰 মাসিক বিক্রি (Monthly Sale): ৳${sale.toInt()} ${if (salesList.isNotBlank()) "[$salesList]" else ""}
+                2. 📉 মাসিক খরচ (Monthly Expense): ৳${expense.toInt()} ${if (expensesList.isNotBlank()) "[$expensesList]" else ""}
+                3. 💳 ঋণ পরিশোধ (Monthly DEBT Pay): ৳${debt.toInt()} ${if (debtList.isNotBlank()) "[$debtList]" else ""}
+                4. 📦 পণ্য ক্রয় (Monthly Product Buy): ৳${buy.toInt()} ${if (buyList.isNotBlank()) "[$buyList]" else ""}
+                ------------------------------------------
+                📊 নিট প্রফিট / ব্যালেন্স (Net Balance): ৳${net.toInt()}
+                📈 নিট প্রফিট মার্জিন: $profitMargin%
+
+                এই তথ্যের ভিত্তিতে একজন বিশেষজ্ঞ বিজনেস ও ফাইন্যান্সিয়াল কনসালটেন্ট হিসেবে:
+                ১. আমার ব্যবসার বর্তমান আর্থিক স্বাস্থ্য বিশ্লেষণ করুন (Financial Health Audit)
+                ২. খরচ ও ঋণ পরিশোধের ভারসাম্য কেমন আছে তা জানান
+                ৩. আগামী মাসে বিক্রি দ্বিগুণ করতে এবং লাভ বাড়াতে সুনির্দিষ্ট ৩টি অ্যাকশন প্ল্যান দিন।
+            """.trimIndent()
+        }
+
+        selectMainTab(MainAppTab.AI_CHAT)
+        sendChatMessage(prompt)
     }
 
     // --- Chat Section & Sessions ---

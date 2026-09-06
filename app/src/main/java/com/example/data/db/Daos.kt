@@ -102,3 +102,49 @@ interface BrandDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveProfile(profile: BrandProfileEntity)
 }
+
+@Dao
+interface SaleDao {
+    @Query("SELECT * FROM sales_records ORDER BY timestamp DESC")
+    fun getAllSales(): Flow<List<SaleRecordEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSale(sale: SaleRecordEntity): Long
+
+    @Delete
+    suspend fun deleteSale(sale: SaleRecordEntity)
+
+    @Query("DELETE FROM sales_records WHERE id = :id")
+    suspend fun deleteSaleById(id: Long)
+
+    @Query("SELECT COUNT(*) FROM sales_records")
+    fun getSalesCount(): Flow<Int>
+
+    @Query("SELECT SUM(totalAmount) FROM sales_records")
+    fun getTotalRevenue(): Flow<Double?>
+}
+
+@Dao
+interface MonthlyFinanceDao {
+    @Query("SELECT * FROM monthly_finances ORDER BY timestamp DESC")
+    fun getAllFinances(): Flow<List<MonthlyFinanceEntity>>
+
+    @Query("SELECT * FROM monthly_finances WHERE type = :type ORDER BY timestamp DESC")
+    fun getFinancesByType(type: String): Flow<List<MonthlyFinanceEntity>>
+
+    @Query("SELECT SUM(amount) FROM monthly_finances WHERE type = :type")
+    fun getTotalByType(type: String): Flow<Double?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFinance(finance: MonthlyFinanceEntity): Long
+
+    @Delete
+    suspend fun deleteFinance(finance: MonthlyFinanceEntity)
+
+    @Query("DELETE FROM monthly_finances WHERE id = :id")
+    suspend fun deleteFinanceById(id: Long)
+
+    @Query("DELETE FROM monthly_finances")
+    suspend fun clearAllFinances()
+}
+

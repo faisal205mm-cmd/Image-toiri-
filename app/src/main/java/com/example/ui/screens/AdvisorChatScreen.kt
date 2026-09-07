@@ -253,7 +253,7 @@ fun AdvisorChatScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isImageMode) "🎨 Image Generator (Gemini 2.5 Flash Image)" else selectedPersona.title,
+                            text = if (isImageMode) "🎨 Image Generator (Gemini & Pollinations AI)" else selectedPersona.title,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                         )

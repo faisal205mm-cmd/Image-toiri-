@@ -58,7 +58,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.db.ChatSessionEntity
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import com.example.ui.components.ApiKeysConfigDialog
 import com.example.ui.components.ChatHistoryDrawerContent
+import com.example.ui.components.QuickImagePromptDialog
 import com.example.ui.screens.AdvisorChatScreen
 import com.example.ui.screens.FirebaseDatabaseScreen
 import com.example.ui.screens.NewSaleScreen
@@ -94,8 +106,15 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
     val customApiKey by viewModel.customApiKey.collectAsStateWithLifecycle()
     val apiKeyStatus by viewModel.apiKeyStatus.collectAsStateWithLifecycle()
     val isApiKeyTesting by viewModel.apiKeyTesting.collectAsStateWithLifecycle()
+    val customPollinationsApiKey by viewModel.customPollinationsApiKey.collectAsStateWithLifecycle()
+    val pollinationsApiKeyStatus by viewModel.pollinationsApiKeyStatus.collectAsStateWithLifecycle()
+    val isPollinationsTesting by viewModel.pollinationsTesting.collectAsStateWithLifecycle()
     val selectedMainTab by viewModel.selectedMainTab.collectAsStateWithLifecycle()
     val allFinances by viewModel.allFinances.collectAsStateWithLifecycle()
+
+    var showApiKeysDialog by remember { mutableStateOf(false) }
+    var showQuickImageDialog by remember { mutableStateOf(false) }
+    var showTopMoreMenu by remember { mutableStateOf(false) }
 
     val currentSession = allSessions.find { it.id == currentSessionId }
 
@@ -138,6 +157,21 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                     },
                     onTestApiKey = { key, onComplete ->
                         viewModel.testApiKey(key, onComplete)
+                    },
+                    pollinationsApiKeyStatus = pollinationsApiKeyStatus,
+                    customPollinationsApiKey = customPollinationsApiKey,
+                    isPollinationsTesting = isPollinationsTesting,
+                    onSavePollinationsApiKey = { key ->
+                        viewModel.savePollinationsApiKey(key)
+                    },
+                    onClearPollinationsApiKey = {
+                        viewModel.clearPollinationsApiKey()
+                    },
+                    onTestPollinationsApiKey = { key, onComplete ->
+                        viewModel.testPollinationsApiKey(key, onComplete)
+                    },
+                    onQuickImagePrompt = { prompt ->
+                        viewModel.quickGenerateImage(prompt)
                     }
                 )
             }
@@ -307,6 +341,107 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "New Chat",
                                         tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            // 3-dot overflow menu
+                            Box {
+                                IconButton(
+                                    onClick = { showTopMoreMenu = true },
+                                    modifier = Modifier.testTag("top_bar_more_menu_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options menu",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showTopMoreMenu,
+                                    onDismissRequest = { showTopMoreMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    "API Keys Settings",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    "Gemini & Pollinations Keys",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Key,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            showApiKeysDialog = true
+                                        },
+                                        modifier = Modifier.testTag("menu_api_keys_item")
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    "AI Image Generator",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    "Pollinations AI (যেকোনো ছবি তৈরি)",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color(0xFF7C4DFF)
+                                                )
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Palette,
+                                                contentDescription = null,
+                                                tint = Color(0xFF7C4DFF)
+                                            )
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            showQuickImageDialog = true
+                                        },
+                                        modifier = Modifier.testTag("menu_generate_image_item")
+                                    )
+
+                                    HorizontalDivider()
+
+                                    DropdownMenuItem(
+                                        text = { Text("Start New Chat") },
+                                        leadingIcon = {
+                                            Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            viewModel.startNewSession()
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Clear Current Chat") },
+                                        leadingIcon = {
+                                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            viewModel.clearCurrentChat()
+                                        }
                                     )
                                 }
                             }
@@ -512,5 +647,37 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                 }
             }
         }
+    }
+
+    if (showApiKeysDialog) {
+        ApiKeysConfigDialog(
+            onDismiss = { showApiKeysDialog = false },
+            geminiApiKeyStatus = apiKeyStatus,
+            customGeminiKey = customApiKey,
+            isGeminiTesting = isApiKeyTesting,
+            onSaveGeminiKey = { viewModel.saveCustomApiKey(it) },
+            onClearGeminiKey = { viewModel.clearCustomApiKey() },
+            onTestGeminiKey = { key, callback -> viewModel.testApiKey(key, callback) },
+            pollinationsApiKeyStatus = pollinationsApiKeyStatus,
+            customPollinationsKey = customPollinationsApiKey,
+            isPollinationsTesting = isPollinationsTesting,
+            onSavePollinationsKey = { viewModel.savePollinationsApiKey(it) },
+            onClearPollinationsKey = { viewModel.clearPollinationsApiKey() },
+            onTestPollinationsKey = { key, callback -> viewModel.testPollinationsApiKey(key, callback) },
+            onQuickPromptSelected = { prompt ->
+                showApiKeysDialog = false
+                viewModel.quickGenerateImage(prompt)
+            }
+        )
+    }
+
+    if (showQuickImageDialog) {
+        QuickImagePromptDialog(
+            onDismiss = { showQuickImageDialog = false },
+            onGenerate = { prompt ->
+                showQuickImageDialog = false
+                viewModel.quickGenerateImage(prompt)
+            }
+        )
     }
 }

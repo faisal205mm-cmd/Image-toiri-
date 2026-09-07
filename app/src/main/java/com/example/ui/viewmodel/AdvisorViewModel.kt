@@ -52,7 +52,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     private val repository: AdvisorRepository
     private val prefs = application.getSharedPreferences("gemini_api_prefs", android.content.Context.MODE_PRIVATE)
 
-    // API Key Management
+    // Gemini API Key Management
     private val _customApiKey = MutableStateFlow(prefs.getString("custom_gemini_api_key", "") ?: "")
     val customApiKey: StateFlow<String> = _customApiKey.asStateFlow()
 
@@ -62,6 +62,16 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     private val _apiKeyTesting = MutableStateFlow(false)
     val apiKeyTesting: StateFlow<Boolean> = _apiKeyTesting.asStateFlow()
 
+    // Pollinations API Key Management (for unrestricted image generation)
+    private val _customPollinationsApiKey = MutableStateFlow(prefs.getString("custom_pollinations_api_key", "") ?: "")
+    val customPollinationsApiKey: StateFlow<String> = _customPollinationsApiKey.asStateFlow()
+
+    private val _pollinationsApiKeyStatus = MutableStateFlow(Pair(true, "Active (Free Tier)"))
+    val pollinationsApiKeyStatus: StateFlow<Pair<Boolean, String>> = _pollinationsApiKeyStatus.asStateFlow()
+
+    private val _pollinationsTesting = MutableStateFlow(false)
+    val pollinationsTesting: StateFlow<Boolean> = _pollinationsTesting.asStateFlow()
+
     init {
         val db = AppDatabase.getDatabase(application)
         repository = AdvisorRepository(db, application.applicationContext)
@@ -69,13 +79,22 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         if (savedKey.isNotBlank()) {
             repository.setCustomApiKey(savedKey)
         }
+        val savedPollinationsKey = prefs.getString("custom_pollinations_api_key", "") ?: ""
+        if (savedPollinationsKey.isNotBlank()) {
+            repository.setCustomPollinationsApiKey(savedPollinationsKey)
+        }
         updateApiKeyStatus()
+        updatePollinationsApiKeyStatus()
         loadInitialProfile()
         seedSampleDataIfEmpty()
     }
 
     private fun updateApiKeyStatus() {
         _apiKeyStatus.value = repository.getApiKeyInfo()
+    }
+
+    private fun updatePollinationsApiKeyStatus() {
+        _pollinationsApiKeyStatus.value = repository.getPollinationsApiKeyInfo()
     }
 
     fun saveCustomApiKey(key: String) {
@@ -101,6 +120,38 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             _apiKeyTesting.value = false
             onComplete(result.first, result.second)
         }
+    }
+
+    fun savePollinationsApiKey(key: String) {
+        val trimmed = key.trim()
+        prefs.edit().putString("custom_pollinations_api_key", trimmed).apply()
+        _customPollinationsApiKey.value = trimmed
+        repository.setCustomPollinationsApiKey(trimmed.ifBlank { null })
+        updatePollinationsApiKeyStatus()
+    }
+
+    fun clearPollinationsApiKey() {
+        prefs.edit().remove("custom_pollinations_api_key").apply()
+        _customPollinationsApiKey.value = ""
+        repository.setCustomPollinationsApiKey(null)
+        updatePollinationsApiKeyStatus()
+    }
+
+    fun testPollinationsApiKey(keyToTest: String, onComplete: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _pollinationsTesting.value = true
+            val effective = if (keyToTest.isNotBlank()) keyToTest else repository.getPollinationsApiKey()
+            val result = repository.validatePollinationsApiKey(effective)
+            _pollinationsTesting.value = false
+            onComplete(result.first, result.second)
+        }
+    }
+
+    fun quickGenerateImage(prompt: String) {
+        if (prompt.isBlank()) return
+        _selectedMainTab.value = MainAppTab.AI_CHAT
+        _isImageMode.value = true
+        sendChatMessage(prompt = prompt, forceImageMode = true)
     }
 
     // Navigation

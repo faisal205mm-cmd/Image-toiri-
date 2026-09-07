@@ -106,6 +106,13 @@ fun ChatHistoryDrawerContent(
     onSaveApiKey: (String) -> Unit = {},
     onClearApiKey: () -> Unit = {},
     onTestApiKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
+    pollinationsApiKeyStatus: Pair<Boolean, String> = Pair(true, "Active (Free Tier)"),
+    customPollinationsApiKey: String = "",
+    isPollinationsTesting: Boolean = false,
+    onSavePollinationsApiKey: (String) -> Unit = {},
+    onClearPollinationsApiKey: () -> Unit = {},
+    onTestPollinationsApiKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
+    onQuickImagePrompt: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -318,6 +325,25 @@ fun ChatHistoryDrawerContent(
                 onSaveApiKey = onSaveApiKey,
                 onClearApiKey = onClearApiKey,
                 onTestApiKey = onTestApiKey,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Pollinations API Key Bar (Image Generation) - directly below Gemini API Key Bar
+            PollinationsApiKeyBar(
+                apiKeyStatus = pollinationsApiKeyStatus,
+                customApiKey = customPollinationsApiKey,
+                isApiKeyTesting = isPollinationsTesting,
+                onSaveApiKey = onSavePollinationsApiKey,
+                onClearApiKey = onClearPollinationsApiKey,
+                onTestApiKey = onTestPollinationsApiKey,
+                onQuickPromptSelected = { prompt ->
+                    onCloseDrawer()
+                    onQuickImagePrompt?.invoke(prompt)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)

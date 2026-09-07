@@ -106,9 +106,35 @@ class AdvisorRepository(
 
     private val apiService: GeminiApiService = GeminiClient.apiService
     private var customApiKey: String? = null
+    private var customPollinationsApiKey: String? = null
 
     fun setCustomApiKey(key: String?) {
         customApiKey = key?.trim()?.ifBlank { null }
+    }
+
+    fun setCustomPollinationsApiKey(key: String?) {
+        customPollinationsApiKey = key?.trim()?.ifBlank { null }
+    }
+
+    fun getPollinationsApiKey(): String {
+        return customPollinationsApiKey ?: ""
+    }
+
+    fun getPollinationsApiKeyInfo(): Pair<Boolean, String> {
+        val custom = customPollinationsApiKey
+        if (!custom.isNullOrBlank()) {
+            val masked = if (custom.length > 8) {
+                "${custom.take(4)}...${custom.takeLast(4)}"
+            } else {
+                "••••••••"
+            }
+            return Pair(true, "Custom Key ($masked)")
+        }
+        return Pair(true, "Active (Free & Open Tier)")
+    }
+
+    suspend fun validatePollinationsApiKey(keyToTest: String): Pair<Boolean, String> {
+        return com.example.data.api.PollinationsClient.testConnection(keyToTest.trim().ifBlank { null })
     }
 
     fun getEffectiveApiKey(): String {
@@ -212,6 +238,41 @@ class AdvisorRepository(
         return if (cleaned.isNotBlank()) cleaned else prompt
     }
 
+    suspend fun generateWithPollinations(
+        prompt: String,
+        aspectRatio: String = "1:1"
+    ): Pair<String?, String> = withContext(Dispatchers.IO) {
+        val cleanPrompt = extractCleanImagePrompt(prompt)
+        val (width, height) = when (aspectRatio) {
+            "16:9" -> Pair(1280, 720)
+            "9:16" -> Pair(720, 1280)
+            "4:3" -> Pair(1024, 768)
+            "3:4" -> Pair(768, 1024)
+            else -> Pair(1024, 1024)
+        }
+        val pollinationsKey = customPollinationsApiKey
+        val imageUrl = com.example.data.api.PollinationsClient.buildImageUrl(
+            prompt = cleanPrompt,
+            width = width,
+            height = height,
+            model = "flux",
+            apiKey = pollinationsKey
+        )
+        val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
+        val localFile = File(imagesDir, "pollinations_${System.currentTimeMillis()}_${(100..999).random()}.jpg")
+        val downloaded = com.example.data.api.PollinationsClient.downloadImage(
+            url = imageUrl,
+            outputFile = localFile,
+            apiKey = pollinationsKey
+        )
+        val finalPath = if (downloaded && localFile.exists() && localFile.length() > 0) {
+            localFile.absolutePath
+        } else {
+            imageUrl
+        }
+        Pair(finalPath, "🎨 **Visual Created (Pollinations AI)**\n\nPrompt: *$cleanPrompt*")
+    }
+
     suspend fun generateImage(
         sessionId: Long?,
         persona: AdvisorPersona,
@@ -248,32 +309,16 @@ class AdvisorRepository(
             )
         )
 
+        var savedImagePath: String? = null
+        var modelMessageText: String = ""
+
         val apiKey = getEffectiveApiKey()
         if (apiKey.isBlank()) {
-            val fallback = """
-⚠️ **Gemini API Key Required**
-
-No active Gemini API key was detected. To generate AI images:
-
-1. Open the Chat History Drawer (top-left ☰ menu).
-2. Enter your Gemini API key in the **Gemini API Key** bar at the top.
-3. Tap **Test** to verify connection, then tap **Save**.
-
-*(Get a free API key instantly at [Google AI Studio](https://aistudio.google.com/app/apikey))*
-""".trimIndent()
-            database.chatDao().insertMessage(
-                ChatMessageEntity(
-                    sessionId = activeSessionId,
-                    role = "model",
-                    message = fallback,
-                    persona = persona.id,
-                    imageUrl = null,
-                    isImagePrompt = true,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-            return@withContext Pair(activeSessionId, fallback)
-        }
+            // Direct Pollinations AI generation when Gemini key is not configured
+            val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+            savedImagePath = pollinationsPath
+            modelMessageText = pollinationsMessage
+        } else {
 
         val cleanPrompt = extractCleanImagePrompt(prompt)
         val request = GeminiRequest(
@@ -288,8 +333,6 @@ No active Gemini API key was detected. To generate AI images:
             )
         )
 
-        var savedImagePath: String? = null
-        var modelMessageText: String
         val imageCandidateModels = listOf(
             GeminiClient.MODEL_IMAGE_PRIMARY, // gemini-2.5-flash-image
             GeminiClient.MODEL_IMAGE_LATEST,  // gemini-3.1-flash-image-preview
@@ -364,44 +407,22 @@ No active Gemini API key was detected. To generate AI images:
                     !textPart.isNullOrBlank() -> textPart
                     else -> "🎨 Image generated successfully."
                 }
-            } else {
-                throw (lastException ?: Exception("Image generation failed. Please try again."))
-            }
-        } catch (e: Exception) {
-            val parsed = GeminiErrorParser.parse(e)
-            modelMessageText = when (parsed.errorType) {
-                GeminiErrorType.INVALID_API_KEY -> """
-⚠️ **Gemini API Error: Invalid API Key**
-
-The API key used was rejected by Google AI Studio (`HTTP 400`).
-Please verify or update your key in the drawer menu (☰).
-""".trimIndent()
-                GeminiErrorType.QUOTA_EXCEEDED -> """
-⚠️ **Gemini API Error: Rate Limit / Quota Exceeded (`HTTP 429`)**
-
-**কারণ (Cause):**
-Google AI Studio-এর ফ্রি টায়ারে ইমেজ জেনারেশন মডেলের জন্য প্রতি মিনিটে রিকোয়েস্ট লিমিট (2–5 Requests Per Minute) অথবা দৈনিক কোটা শেষ হয়েছে।
-
-**সমাধান (Solutions):**
-1. ⏳ **অপেক্ষা করুন:** ৩০–৬০ সেকেন্ড পর নিচের **Retry** বাটনে ট্যাপ করুন।
-2. 🔑 **নতুন API Key:** [Google AI Studio (aistudio.google.com)](https://aistudio.google.com/app/apikey) থেকে একটি নতুন ফ্রি API Key নিয়ে ড্রয়ার মেনুতে সেট করুন।
-3. 💳 **Pay-as-you-go:** Google Cloud প্রজেক্টে বিলিং যোগ করলে আনলিমিটেড কোটা পাওয়া যায়।
-""".trimIndent()
-                GeminiErrorType.PERMISSION_DENIED -> """
-⚠️ **Gemini API Error: Permission Denied (`HTTP 403`)**
-
-Ensure your API key has Generative Language API access enabled in Google Cloud / AI Studio.
-""".trimIndent()
-                GeminiErrorType.NETWORK_ERROR -> """
-⚠️ **Connection Error**
-
-Could not connect to Gemini image servers. Please check your internet connection.
-""".trimIndent()
-                else -> """
-⚠️ **Image Generation Error: ${parsed.title}**
-
-${parsed.message}
-""".trimIndent()
+                } else {
+                    // Fallback to Pollinations AI
+                    val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+                    savedImagePath = pollinationsPath
+                    modelMessageText = "$pollinationsMessage\n\n*(Gemini কোটা লিমিট থাকায় Pollinations AI দিয়ে তৈরি করা হয়েছে)*"
+                }
+            } catch (e: Exception) {
+                // Fallback to Pollinations AI
+                val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+                if (pollinationsPath != null) {
+                    savedImagePath = pollinationsPath
+                    modelMessageText = "$pollinationsMessage\n\n*(Pollinations AI দিয়ে নিরবচ্ছিন্নভাবে তৈরি করা হয়েছে)*"
+                } else {
+                    val parsed = GeminiErrorParser.parse(e)
+                    modelMessageText = "⚠️ Image Generation Error: ${parsed.title}\n\n${parsed.message}"
+                }
             }
         }
 

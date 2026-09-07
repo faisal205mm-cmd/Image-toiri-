@@ -51,12 +51,13 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -1265,10 +1266,12 @@ fun EmptyChatGreeting(
             )
         } else {
             listOf(
+                "📊 আমার দোকানের মোট বিক্রির হিসাব ও লাভ দেখাও",
+                "☁️ ক্লাউডে সংরক্ষিত বিক্রির ডাটা ও কাস্টমার বাকি পর্যালোচনা করো",
+                "💵 এই মাসের মোট বিক্রি, খরচ এবং নিট ব্যালেন্স কত?",
                 "👕 এই কাপড়ের কোয়ালিটি ও দাম কত রাখা উচিত?",
                 "👗 ফেসবুক পেইজে পোশাক বিক্রির আকর্ষণীয় ক্যাপশন লেখো",
                 "🧵 কাপড়ের জিএসএম (GSM) এবং ফ্যাব্রিক টাইপ বোঝার নিয়ম কি?",
-                "💡 কটন, লিনেন ও জর্জেটের লাভজনক খুচরা মার্জিন কত?",
                 "📈 কাপড়ের দোকানের জন্য কার্যকরী সোশ্যাল মিডিয়া মার্কেটিং প্ল্যান"
             )
         }
@@ -1518,7 +1521,7 @@ fun UserMessageBubble(
                                     )
                                 }
                                 Icon(
-                                    imageVector = Icons.Default.OpenInNew,
+                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
                                     modifier = Modifier.size(16.dp)
@@ -1791,7 +1794,7 @@ fun AdvisorMessageBubble(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Action row for Image (Fullscreen / Edit / Share)
+                        // Action row for Image (Fullscreen / Edit / Save / Share)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -1799,7 +1802,7 @@ fun AdvisorMessageBubble(
                             OutlinedButton(
                                 onClick = { onImageClick(imageUrl) },
                                 shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
@@ -1807,7 +1810,7 @@ fun AdvisorMessageBubble(
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
                                 Text("Expand", style = MaterialTheme.typography.labelSmall)
                             }
 
@@ -1821,7 +1824,7 @@ fun AdvisorMessageBubble(
                                     onEditPrompt(extractedPrompt)
                                 },
                                 shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
@@ -1829,14 +1832,32 @@ fun AdvisorMessageBubble(
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
                                 Text("Edit", style = MaterialTheme.typography.labelSmall)
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    val (success, msg) = com.example.data.util.MediaUtils.saveImageToGallery(context, imageUrl)
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Save to Gallery",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("Save", style = MaterialTheme.typography.labelSmall)
                             }
 
                             FilledTonalButton(
                                 onClick = { shareImage(context, imageUrl) },
                                 shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
@@ -1844,7 +1865,7 @@ fun AdvisorMessageBubble(
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
                                 Text("Share", style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -2056,6 +2077,23 @@ fun FullscreenImageViewerDialog(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Edit")
                         }
+                    }
+
+                    FilledTonalButton(
+                        onClick = {
+                            val (success, msg) = com.example.data.util.MediaUtils.saveImageToGallery(context, imageUrl)
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.2f),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Save")
                     }
 
                     Button(

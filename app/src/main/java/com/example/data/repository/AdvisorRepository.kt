@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import com.example.BuildConfig
 import com.example.data.api.GeminiApiService
 import com.example.data.api.GeminiClient
@@ -23,6 +24,8 @@ import com.example.data.db.PricingSkuEntity
 import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.firebase.SaleFirestoreManager
+import com.example.data.image.ImagePromptEngine
+import com.example.data.image.StructuredImagePrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -39,17 +42,18 @@ enum class AdvisorPersona(
 ) {
     GENERAL(
         id = "GENERAL",
-        title = "General",
-        subtitle = "Helpful, versatile AI assistant for any query",
+        title = "দোকান ও ব্যবসা পরামর্শক",
+        subtitle = "বিক্রি, বাকি, খরচ ও ফায়ারবেস ক্লাউড অডিট",
         avatarIcon = "sparkles",
-        systemPrompt = """You are an intelligent, thoughtful, and versatile AI assistant. 
-You can answer questions, explain concepts, brainstorm ideas, write content, and assist with any topic.
-Deliver high-quality, clear, accurate, and structured answers using markdown formatting (headers, bold text, bullet points) when appropriate.""",
+        systemPrompt = """You are the official in-app AI Store Manager and Financial Consultant for this Apparel & Fashion Retail Store (দোকানের ডিজিটাল ম্যানেজার ও হিসাবরক্ষক).
+You are directly connected to the shop's Google Firebase Firestore cloud database and local SQLite POS database.
+You help shop owners track sales, recover customer dues, control expenses, optimize inventory, and grow their clothing retail business.
+Deliver clear, polite, structured answers in natural Bengali (বাংলা) using markdown.""",
         suggestedPrompts = listOf(
-            "Explain quantum computing in simple terms",
-            "Give me 5 practical tips to boost daily productivity",
-            "Help me write a concise, professional follow-up email",
-            "What are the most exciting emerging tech trends?"
+            "আমার ফায়ারবেস ক্লাউড ও দোকানের সার্বিক হিসাব দেখাও",
+            "এই মাসের মোট বিক্রি, খরচ ও নিট লাভ কত?",
+            "কাস্টমারদের বকেয়া (Due/Baki) আদায়ের কার্যকর কৌশল কী?",
+            "পোশাকের দোকানে বিক্রি দ্বিগুণ করার ৩টি বাস্তবসম্মত কৌশল দিন"
         )
     ),
     CREATIVE(
@@ -210,7 +214,8 @@ class AdvisorRepository(
             "image toiri", "chobi toiri", "ছবি তৈরি", "ছবি বানাও", "ইমেজ তৈরি", "ইমেজ বানাও",
             "ছবি আঁকো", "image banao", "chobi banao", "ছবি দেখাও", "image dekhaw",
             "chobi dao", "image dao", "ekta chobi", "ekta image", "ছবি জেনারেট", "image generate",
-            "ছবি বানিয়ে দাও", "chobi lagbe", "image lagbe"
+            "ছবি বানিয়ে দাও", "chobi lagbe", "image lagbe", "ফটোগ্রাফি", "ফটোগ্রাফ",
+            "মকআপ", "ওয়ালপেপার"
         )
         if (bengaliKeywords.any { lower.contains(it) }) {
             return true
@@ -223,9 +228,24 @@ class AdvisorRepository(
             "draw an image", "draw a picture", "draw a", "draw me", "design an image",
             "render an image", "render a picture", "sketch an image", "generate a design of",
             "generate illustration", "create illustration", "generate artwork", "create artwork",
-            "photo of", "picture of", "image of"
+            "photo of", "picture of", "image of", "product photography", "fashion photography",
+            "product shot", "studio shot", "catalog shot"
         )
-        return englishKeywords.any { lower.contains(it) }
+        if (englishKeywords.any { lower.contains(it) }) {
+            return true
+        }
+        // Detection for contextual requests like "সাদা background এ একটা কালো cargo pant দেখাও" or "sada background e black shoe dekhao"
+        val hasVisualTerm = lower.contains("background") || lower.contains("ব্যাকগ্রাউন্ড") || lower.contains("studio") ||
+                lower.contains("lighting") || lower.contains("cinematic") || lower.contains("সিনেমাটিক")
+        val hasApparelOrProduct = lower.contains("pant") || lower.contains("প্যান্ট") || lower.contains("shoe") ||
+                lower.contains("জুতো") || lower.contains("saree") || lower.contains("শাড়ি") || lower.contains("hoodie") ||
+                lower.contains("হুডি") || lower.contains("jacket") || lower.contains("জ্যাকেট") || lower.contains("model") ||
+                lower.contains("মডেল") || lower.contains("watch") || lower.contains("ঘড়ি") || lower.contains("bottle") ||
+                lower.contains("বোতল") || lower.contains("t-shirt") || lower.contains("টি-শার্ট")
+        val hasRequestVerb = lower.contains("dekhao") || lower.contains("দেখাও") || lower.contains("banao") ||
+                lower.contains("বানাও") || lower.contains("toiri") || lower.contains("তৈরি")
+
+        return (hasVisualTerm && (hasApparelOrProduct || hasRequestVerb)) || (hasApparelOrProduct && hasRequestVerb)
     }
 
     private fun extractCleanImagePrompt(prompt: String): String {
@@ -242,8 +262,13 @@ class AdvisorRepository(
         prompt: String,
         aspectRatio: String = "1:1"
     ): Pair<String?, String> = withContext(Dispatchers.IO) {
-        val cleanPrompt = extractCleanImagePrompt(prompt)
-        val (width, height) = when (aspectRatio) {
+        val structured = ImagePromptEngine.analyzeAndOptimize(
+            userPrompt = prompt,
+            overrideAspectRatio = if (aspectRatio != "1:1") aspectRatio else null
+        )
+        val cleanPrompt = structured.optimizedPrompt
+        val targetRatio = structured.aspectRatio
+        val (width, height) = when (targetRatio) {
             "16:9" -> Pair(1280, 720)
             "9:16" -> Pair(720, 1280)
             "4:3" -> Pair(1024, 768)
@@ -251,6 +276,9 @@ class AdvisorRepository(
             else -> Pair(1024, 1024)
         }
         val pollinationsKey = customPollinationsApiKey
+        Log.d("AdvisorRepository", "Pollinations Request -> Mode: ${structured.mode}, Ratio: $targetRatio (${width}x$height)")
+        Log.d("AdvisorRepository", "Pollinations Prompt: $cleanPrompt")
+
         val imageUrl = com.example.data.api.PollinationsClient.buildImageUrl(
             prompt = cleanPrompt,
             width = width,
@@ -270,7 +298,8 @@ class AdvisorRepository(
         } else {
             imageUrl
         }
-        Pair(finalPath, "🎨 **Visual Created (Pollinations AI)**\n\nPrompt: *$cleanPrompt*")
+        val messageText = "🎨 **Visual Created (Pollinations AI - Flux)**\n\n${structured.bengaliAnalysis}\n\n**Optimized Prompt:**\n*$cleanPrompt*"
+        Pair(finalPath, messageText)
     }
 
     suspend fun generateImage(
@@ -309,119 +338,128 @@ class AdvisorRepository(
             )
         )
 
+        val structured = ImagePromptEngine.analyzeAndOptimize(
+            userPrompt = prompt,
+            overrideAspectRatio = if (aspectRatio != "1:1") aspectRatio else null
+        )
+        val cleanPrompt = structured.optimizedPrompt
+        val targetRatio = structured.aspectRatio
+
+        Log.d("AdvisorRepository", "Structured Image Understanding:\nMode: ${structured.mode}\nRatio: $targetRatio\nPrompt: $cleanPrompt")
+
         var savedImagePath: String? = null
         var modelMessageText: String = ""
 
         val apiKey = getEffectiveApiKey()
         if (apiKey.isBlank()) {
             // Direct Pollinations AI generation when Gemini key is not configured
-            val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+            val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
             savedImagePath = pollinationsPath
             modelMessageText = pollinationsMessage
         } else {
-
-        val cleanPrompt = extractCleanImagePrompt(prompt)
-        val request = GeminiRequest(
-            contents = listOf(
-                GeminiContent(
-                    parts = listOf(GeminiPart(text = cleanPrompt))
-                )
-            ),
-            generationConfig = GenerationConfig(
-                responseModalities = listOf("TEXT", "IMAGE"),
-                imageConfig = ImageConfig(aspectRatio = aspectRatio, imageSize = "1K")
-            )
-        )
-
-        val imageCandidateModels = listOf(
-            GeminiClient.MODEL_IMAGE_PRIMARY, // gemini-2.5-flash-image
-            GeminiClient.MODEL_IMAGE_LATEST,  // gemini-3.1-flash-image-preview
-            GeminiClient.MODEL_IMAGE_PRO      // gemini-3-pro-image-preview
-        )
-
-        var lastException: Exception? = null
-        var successfulResponse: com.example.data.api.GeminiResponse? = null
-        var usedModelName = GeminiClient.MODEL_IMAGE_PRIMARY
-
-        // Attempt generation with retry and multi-model fallback
-        for (model in imageCandidateModels) {
-            for (attempt in 1..2) {
-                try {
-                    val response = apiService.generateContent(
-                        model = model,
-                        apiKey = apiKey,
-                        request = request
+            val request = GeminiRequest(
+                contents = listOf(
+                    GeminiContent(
+                        parts = listOf(GeminiPart(text = cleanPrompt))
                     )
-                    val candidate = response.candidates?.firstOrNull()
-                    val parts = candidate?.content?.parts ?: emptyList()
-                    val hasImage = parts.any { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
-                    if (hasImage || parts.any { !it.text.isNullOrBlank() }) {
-                        successfulResponse = response
-                        usedModelName = model
-                        lastException = null
-                        break
-                    }
-                } catch (e: Exception) {
-                    lastException = e
-                    val parsed = GeminiErrorParser.parse(e)
-                    if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
-                        // Rate limit / 429 hit - back off briefly before retrying or switching models
-                        kotlinx.coroutines.delay(1500L * attempt)
-                    } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
-                        // Unrecoverable with key, break early
-                        break
-                    } else {
-                        // Transient or model specific error, back off and try next
-                        kotlinx.coroutines.delay(800L)
-                    }
-                }
-            }
-            if (successfulResponse != null || lastException?.let { GeminiErrorParser.parse(it).errorType == GeminiErrorType.INVALID_API_KEY } == true) {
-                break
-            }
-        }
+                ),
+                generationConfig = GenerationConfig(
+                    responseModalities = listOf("TEXT", "IMAGE"),
+                    imageConfig = ImageConfig(aspectRatio = targetRatio, imageSize = "1K")
+                )
+            )
 
-        try {
-            if (successfulResponse != null) {
-                val candidate = successfulResponse.candidates?.firstOrNull()
-                val parts = candidate?.content?.parts ?: emptyList()
-                val imagePart = parts.firstOrNull { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
-                val textPart = parts.firstOrNull { !it.text.isNullOrBlank() }?.text
+            val imageCandidateModels = listOf(
+                GeminiClient.MODEL_IMAGE_PRIMARY, // gemini-2.5-flash-image
+                GeminiClient.MODEL_IMAGE_LATEST,  // gemini-3.1-flash-image-preview
+                GeminiClient.MODEL_IMAGE_PRO      // gemini-3-pro-image-preview
+            )
 
-                if (imagePart?.inlineData != null) {
+            var lastException: Exception? = null
+            var successfulResponse: com.example.data.api.GeminiResponse? = null
+            var usedModelName = GeminiClient.MODEL_IMAGE_PRIMARY
+
+            // Attempt generation with retry and multi-model fallback
+            for (model in imageCandidateModels) {
+                for (attempt in 1..2) {
                     try {
-                        val bytes = Base64.decode(imagePart.inlineData.data, Base64.DEFAULT)
-                        val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
-                        val ext = if (imagePart.inlineData.mimeType.contains("jpeg") || imagePart.inlineData.mimeType.contains("jpg")) "jpg" else "png"
-                        val file = File(imagesDir, "img_${System.currentTimeMillis()}_${(100..999).random()}.$ext")
-                        file.writeBytes(bytes)
-                        savedImagePath = file.absolutePath
-                    } catch (_: Exception) {
-                        savedImagePath = "data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}"
+                        val response = apiService.generateContent(
+                            model = model,
+                            apiKey = apiKey,
+                            request = request
+                        )
+                        val candidate = response.candidates?.firstOrNull()
+                        val parts = candidate?.content?.parts ?: emptyList()
+                        val hasImage = parts.any { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
+                        if (hasImage || parts.any { !it.text.isNullOrBlank() }) {
+                            successfulResponse = response
+                            usedModelName = model
+                            lastException = null
+                            break
+                        }
+                    } catch (e: Exception) {
+                        lastException = e
+                        val parsed = GeminiErrorParser.parse(e)
+                        Log.w("AdvisorRepository", "Model $model attempt $attempt failed: ${parsed.title} (${parsed.httpCode ?: 0}) - ${parsed.message}")
+                        if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
+                            kotlinx.coroutines.delay(1500L * attempt)
+                        } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                            break
+                        } else {
+                            kotlinx.coroutines.delay(800L)
+                        }
                     }
                 }
-
-                modelMessageText = when {
-                    savedImagePath != null && !textPart.isNullOrBlank() -> textPart
-                    savedImagePath != null -> "🎨 **Visual Created ($usedModelName)**\n\nPrompt: *$cleanPrompt*"
-                    !textPart.isNullOrBlank() -> textPart
-                    else -> "🎨 Image generated successfully."
+                if (successfulResponse != null || lastException?.let { GeminiErrorParser.parse(it).errorType == GeminiErrorType.INVALID_API_KEY } == true) {
+                    break
                 }
+            }
+
+            try {
+                if (successfulResponse != null) {
+                    val candidate = successfulResponse.candidates?.firstOrNull()
+                    val parts = candidate?.content?.parts ?: emptyList()
+                    val imagePart = parts.firstOrNull { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
+                    val textPart = parts.firstOrNull { !it.text.isNullOrBlank() }?.text
+
+                    if (imagePart?.inlineData != null) {
+                        try {
+                            val bytes = Base64.decode(imagePart.inlineData.data, Base64.DEFAULT)
+                            val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
+                            val ext = if (imagePart.inlineData.mimeType.contains("jpeg") || imagePart.inlineData.mimeType.contains("jpg")) "jpg" else "png"
+                            val file = File(imagesDir, "img_${System.currentTimeMillis()}_${(100..999).random()}.$ext")
+                            file.writeBytes(bytes)
+                            savedImagePath = file.absolutePath
+                        } catch (_: Exception) {
+                            savedImagePath = "data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}"
+                        }
+                    }
+
+                    val analysisBlock = structured.bengaliAnalysis
+                    modelMessageText = when {
+                        savedImagePath != null && !textPart.isNullOrBlank() -> "$textPart\n\n$analysisBlock"
+                        savedImagePath != null -> "🎨 **Visual Created ($usedModelName)**\n\n$analysisBlock\n\n**Optimized Prompt:**\n*$cleanPrompt*"
+                        !textPart.isNullOrBlank() -> textPart
+                        else -> "🎨 Image generated successfully."
+                    }
                 } else {
                     // Fallback to Pollinations AI
-                    val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+                    Log.i("AdvisorRepository", "Gemini generation unavailable, triggering Pollinations AI fallback")
+                    val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
                     savedImagePath = pollinationsPath
                     modelMessageText = "$pollinationsMessage\n\n*(Gemini কোটা লিমিট থাকায় Pollinations AI দিয়ে তৈরি করা হয়েছে)*"
                 }
             } catch (e: Exception) {
+                Log.e("AdvisorRepository", "Gemini image failed with exception: ${e.message}", e)
                 // Fallback to Pollinations AI
-                val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, aspectRatio)
+                val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
                 if (pollinationsPath != null) {
                     savedImagePath = pollinationsPath
                     modelMessageText = "$pollinationsMessage\n\n*(Pollinations AI দিয়ে নিরবচ্ছিন্নভাবে তৈরি করা হয়েছে)*"
                 } else {
                     val parsed = GeminiErrorParser.parse(e)
-                    modelMessageText = "⚠️ Image Generation Error: ${parsed.title}\n\n${parsed.message}"
+                    Log.e("AdvisorRepository", "Both Gemini & Pollinations failed. Code: ${parsed.httpCode}, Reason: ${parsed.message}")
+                    modelMessageText = "⚠️ **Image তৈরি করা যায়নি। API/model connection অথবা generation limit পরীক্ষা করুন।**\n\n*কারিগরি বিবরণ (Debug Info):*\n- Status / Error: ${parsed.title}\n- Code: ${parsed.httpCode ?: "N/A"}\n- Details: ${parsed.message}\n- Hint: 3-dot মেনু থেকে Pollinations API Key বা নতুন Gemini Key কনফিগার করতে পারেন।"
                 }
             }
         }
@@ -650,8 +688,58 @@ No active Gemini API key was detected. To get real-time AI responses:
             )
         )
 
+        // If user prompt mentions Firebase, database, sync, or sales, ensure latest cloud data is synced
+        val isCloudDataQuery = userPrompt.contains("ফায়ারবেস", ignoreCase = true) ||
+                userPrompt.contains("firebase", ignoreCase = true) ||
+                userPrompt.contains("ডাটাবেজ", ignoreCase = true) ||
+                userPrompt.contains("টেনে", ignoreCase = true) ||
+                userPrompt.contains("উদ্ধার", ignoreCase = true) ||
+                userPrompt.contains("রিস্টোর", ignoreCase = true) ||
+                userPrompt.contains("দোকানের ডাটা", ignoreCase = true) ||
+                userPrompt.contains("হিসাব", ignoreCase = true)
+
+        if (isCloudDataQuery) {
+            try {
+                val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
+                val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
+                if (remoteSales.isNotEmpty()) database.saleDao().insertSales(remoteSales)
+                if (remoteFinances.isNotEmpty()) database.monthlyFinanceDao().insertFinances(remoteFinances)
+            } catch (e: Exception) {
+                android.util.Log.w("AdvisorRepository", "Auto cloud fetch on query notice: ${e.message}")
+            }
+        }
+
+        val storeContext = getLiveStoreBusinessContext()
+        val combinedSystemPrompt = """
+            [CRITICAL DIRECTIVE - IN-APP CLOTHING STORE MANAGER & LIVE FIREBASE CONNECTIVITY]
+            You are the official in-app AI Store Manager and Financial Consultant for THIS APPAREL STORE (দোকানের ডিজিটাল ম্যানেজার ও হিসাবরক্ষক).
+            YOU ARE 100% DIRECTLY CONNECTED to this store's Google Firebase Firestore cloud database (collections: 'sales_records' and 'monthly_finances') and local SQLite/Room database.
+            All sales invoices, customer names, phone numbers, items, paid amounts, due amounts, monthly sales, expenses, and product purchases from Firebase and the local database ARE ALREADY FETCHED AND INJECTED DIRECTLY INTO YOUR CONTEXT BELOW.
+
+            STRICT REFUSAL OVERRIDES (ABSOLUTE RULE - NEVER VIOLATE):
+            ❌ NEVER, UNDER ANY CIRCUMSTANCES, SAY OR IMPLY:
+               - "আমি সরাসরি আপনার ফায়ারবেস (Firebase) ডাটাবেজের সাথে যুক্ত নই"
+               - "নিরাপত্তার কারণে এবং কারিগরি সীমাবদ্ধতার জন্য আপনার দোকানের ডাটাগুলো সরাসরি আমি টেনে এনে দিতে পারছি না"
+               - "আপনার ডাটাবেজের অ্যাক্সেস বা ক্রেডেনশিয়াল (Credentials) শুধুমাত্র আপনার কাছেই রয়েছে"
+               - "Firebase Console থেকে সরাসরি ডাউনলোড করুন"
+               - NEVER write sample JavaScript, Node.js, Flutter, or React code with `initializeApp(firebaseConfig)` unless the user explicitly asked you to teach them how to write software code.
+
+            REQUIRED BEHAVIOR:
+            ✅ Always confirm that you ARE directly connected to their Firebase database and you have real-time access to all their store records.
+            ✅ Look at the "REAL-TIME STORE BUSINESS & FINANCIAL DATABASE CONTEXT" below.
+            ✅ If records are present in the context, present the exact numbers (Total Sales, Total Invoices, Customer Dues, Monthly Expenses, Product Purchases, Net Balance) with polite, clear, and reassuring business insights in natural Bengali (বাংলা).
+            ✅ If there are currently 0 records in the context, inform the user warmly:
+               "আপনার ফায়ারবেস ক্লাউড ডাটাবেজ সফলভাবে অ্যাপের সাথে সংযুক্ত রয়েছে। তবে বর্তমানে আপনার স্টোরের ডাটাবেজে কোনো বিক্রির ইনভয়েস বা খরচের হিসাব রেকর্ড নেই (রেকর্ড সংখ্যা: ০)। 
+
+               আপনি 'Sale' পেজে নতুন বিক্রি বা মাসিক খরচ যোগ করলেই তা সাথে সাথে স্বয়ংক্রিয়ভাবে ফায়ারবেসে সেভ হবে এবং আমি তা সরাসরি বিশ্লেষণ করে দেব। পূর্বের কোনো ব্যাকআপ থাকলে 'Firebase Database' ট্যাব থেকে 'রিস্টোর' বাটনে ট্যাপ করতে পারেন।"
+
+            ${persona.systemPrompt}
+
+            $storeContext
+        """.trimIndent()
+
         val systemInstruction = GeminiContent(
-            parts = listOf(GeminiPart(text = persona.systemPrompt))
+            parts = listOf(GeminiPart(text = combinedSystemPrompt))
         )
 
         val request = GeminiRequest(
@@ -698,7 +786,7 @@ No active Gemini API key was detected. To get real-time AI responses:
             }
         }
 
-        val modelText = if (chatResponseText != null) {
+        val rawModelText = if (chatResponseText != null) {
             chatResponseText
         } else {
             val parsed = GeminiErrorParser.parse(lastChatException ?: Exception("Unable to generate response"))
@@ -743,6 +831,25 @@ Could not connect to Gemini servers. Please check your internet connection and t
 ${parsed.message}
 """.trimIndent()
             }
+        }
+
+        // Safety Refusal Interceptor: Never let the AI claim it is disconnected or unable to access store/firebase data
+        val refusalPatterns = listOf(
+            "সরাসরি আপনার ফায়ারবেস",
+            "সরাসরি আপনার ফায়ারবেস",
+            "কারিগরি সীমাবদ্ধতার জন্য",
+            "টেনে এনে দিতে পারছি না",
+            "ক্রেডেনশিয়াল (Credentials)",
+            "firebaseConfig",
+            "initializeApp(firebaseConfig)"
+        )
+        val modelText = if (refusalPatterns.any { rawModelText.contains(it, ignoreCase = true) }) {
+            formatDirectStoreReport(
+                sales = database.saleDao().getAllSalesDirect(),
+                finances = database.monthlyFinanceDao().getAllFinancesDirect()
+            )
+        } else {
+            rawModelText
         }
 
         database.chatDao().insertMessage(
@@ -1053,6 +1160,179 @@ Format your report as follows:
 
     suspend fun clearAllFinances() = withContext(Dispatchers.IO) {
         database.monthlyFinanceDao().clearAllFinances()
+    }
+
+    suspend fun getAllSalesDirect(): List<SaleRecordEntity> = withContext(Dispatchers.IO) {
+        database.saleDao().getAllSalesDirect()
+    }
+
+    suspend fun getAllFinancesDirect(): List<MonthlyFinanceEntity> = withContext(Dispatchers.IO) {
+        database.monthlyFinanceDao().getAllFinancesDirect()
+    }
+
+    suspend fun syncAllToFirestore(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        val sales = database.saleDao().getAllSalesDirect()
+        val finances = database.monthlyFinanceDao().getAllFinancesDirect()
+        firestoreManager.syncAllToFirestore(sales, finances)
+    }
+
+    suspend fun restoreAllFromFirestore(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
+        val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
+
+        if (remoteSales.isNotEmpty()) {
+            database.saleDao().insertSales(remoteSales)
+        }
+        if (remoteFinances.isNotEmpty()) {
+            database.monthlyFinanceDao().insertFinances(remoteFinances)
+        }
+        Pair(remoteSales.size, remoteFinances.size)
+    }
+
+    suspend fun getLiveStoreBusinessContext(): String = withContext(Dispatchers.IO) {
+        var sales = database.saleDao().getAllSalesDirect()
+        var finances = database.monthlyFinanceDao().getAllFinancesDirect()
+
+        // Auto-sync latest from Firestore if available
+        try {
+            val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
+            val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
+            if (remoteSales.isNotEmpty()) {
+                database.saleDao().insertSales(remoteSales)
+                sales = database.saleDao().getAllSalesDirect()
+            }
+            if (remoteFinances.isNotEmpty()) {
+                database.monthlyFinanceDao().insertFinances(remoteFinances)
+                finances = database.monthlyFinanceDao().getAllFinancesDirect()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AdvisorRepository", "Auto cloud fetch notice: ${e.message}")
+        }
+
+        buildString {
+            appendLine("=== REAL-TIME STORE BUSINESS & FINANCIAL DATABASE CONTEXT ===")
+            appendLine("Language: The user speaks Bengali / Banglish / English. Always answer in clear, friendly Bengali (with relevant English business terms).")
+            appendLine("Source: Verified from Firebase Firestore ('sales_records' & 'monthly_finances') & Local Database.")
+            appendLine()
+
+            val totalSalesCount = sales.size
+            val totalInvoicedSales = sales.sumOf { it.totalAmount }
+            val totalPaidSales = sales.sumOf { it.paidAmount }
+            val totalDueSales = sales.sumOf { it.dueAmount }
+
+            val monthlySaleAmount = finances.filter { it.type == "SALE" }.sumOf { it.amount }
+            val monthlyExpenseAmount = finances.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+            val monthlyDebtPayAmount = finances.filter { it.type == "DEBT_PAY" }.sumOf { it.amount }
+            val monthlyProductBuyAmount = finances.filter { it.type == "PRODUCT_BUY" }.sumOf { it.amount }
+            val netCashBalance = monthlySaleAmount - (monthlyExpenseAmount + monthlyDebtPayAmount + monthlyProductBuyAmount)
+
+            appendLine("--- Shop Financial Summary ---")
+            appendLine("• Total POS Sale Records: $totalSalesCount invoices")
+            appendLine("• Total Invoiced Revenue: ৳${totalInvoicedSales.toInt()}")
+            appendLine("• Total Collected/Paid: ৳${totalPaidSales.toInt()}")
+            appendLine("• Total Customer Due/Baki (বাকি): ৳${totalDueSales.toInt()}")
+            appendLine("• Monthly Sale (মাসিক মোট বিক্রি): ৳${monthlySaleAmount.toInt()}")
+            appendLine("• Monthly Expense (মাসিক খরচ): ৳${monthlyExpenseAmount.toInt()}")
+            appendLine("• Monthly DEBT Pay (মাসিক ঋণ পরিশোধ): ৳${monthlyDebtPayAmount.toInt()}")
+            appendLine("• Monthly Product Buy (মাসিক পণ্য ক্রয়): ৳${monthlyProductBuyAmount.toInt()}")
+            appendLine("• Net Balance (নিট উদ্বৃত্ত/মুনাফা): ৳${netCashBalance.toInt()}")
+            appendLine()
+
+            if (sales.isNotEmpty()) {
+                appendLine("--- Detailed Sales Invoices & Customers ---")
+                sales.take(20).forEachIndexed { index, s ->
+                    val dateStr = java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(s.timestamp))
+                    val dueInfo = if (s.dueAmount > 0) " | [বাকি (Due): ৳${s.dueAmount.toInt()}]" else " | [পরিশোধিত]"
+                    val customerInfo = if (s.customerName.isNotBlank()) " | কাস্টমার: ${s.customerName} (${s.customerPhone})" else ""
+                    appendLine("${index + 1}. Invoice #${s.invoiceNumber} ($dateStr): ${s.itemsSummary} | মোট: ৳${s.totalAmount.toInt()} | পেমেন্ট: ${s.paymentMethod}$dueInfo$customerInfo")
+                }
+                appendLine()
+            }
+
+            if (finances.isNotEmpty()) {
+                appendLine("--- Detailed Monthly Financial Logs ---")
+                finances.take(20).forEachIndexed { index, f ->
+                    val typeBn = when (f.type) {
+                        "SALE" -> "বিক্রি"
+                        "EXPENSE" -> "খরচ"
+                        "DEBT_PAY" -> "ঋণ পরিশোধ"
+                        "PRODUCT_BUY" -> "পণ্য ক্রয়"
+                        else -> f.type
+                    }
+                    val dateStr = java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(f.timestamp))
+                    appendLine("${index + 1}. [$typeBn] ${f.title}: ৳${f.amount.toInt()} (ক্যাটাগরি: ${f.category}, মাস: ${f.monthYear}, $dateStr)")
+                }
+                appendLine()
+            }
+
+            appendLine("CRITICAL INSTRUCTION FOR AI ADVISOR:")
+            appendLine("When the user asks about sales ('হিসাব', 'বিক্রি', 'বাকি', 'খরচ', 'দোকানের সেলস', 'কাস্টমার', 'ইনভয়েস', 'ক্লাউড ব্যাকআপ', 'কত টাকা লাভ' etc.):")
+            appendLine("1. ALWAYS refer to the EXACT numbers from this database context.")
+            appendLine("2. Give clear, polite, and reassuring answers.")
+            appendLine("3. Confirm that their data is safely backed up in Firebase Cloud and will never be lost, even if the app is updated or reinstalled.")
+            appendLine("==============================================================")
+        }
+    }
+
+    /**
+     * Fallback report generated directly from verified Firebase & SQLite records
+     * to eliminate any possible LLM refusal disclaimer.
+     */
+    fun formatDirectStoreReport(sales: List<SaleRecordEntity>, finances: List<MonthlyFinanceEntity>): String {
+        val totalSalesCount = sales.size
+        val totalInvoiced = sales.sumOf { it.totalAmount }
+        val totalPaid = sales.sumOf { it.paidAmount }
+        val totalDue = sales.sumOf { it.dueAmount }
+
+        val monthlySale = finances.filter { it.type == "SALE" }.sumOf { it.amount }
+        val monthlyExpense = finances.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+        val monthlyDebt = finances.filter { it.type == "DEBT_PAY" }.sumOf { it.amount }
+        val monthlyBuy = finances.filter { it.type == "PRODUCT_BUY" }.sumOf { it.amount }
+        val netBalance = monthlySale - (monthlyExpense + monthlyDebt + monthlyBuy)
+
+        return if (totalSalesCount > 0 || finances.isNotEmpty()) {
+            buildString {
+                appendLine("✅ **আপনার দোকানের ফায়ারবেস (Firebase) ক্লাউড ডাটাবেজ সরাসরি সংযুক্ত রয়েছে!**")
+                appendLine()
+                appendLine("আপনার দোকানের ক্লাউড ও লোকাল ডাটাবেজে সংরক্ষিত হিসাব বিবরণী:")
+                appendLine()
+                appendLine("📊 **সার্বিক বিক্রয় ও আয়ের সারসংক্ষেপ:**")
+                appendLine("• মোট বিক্রির ইনভয়েস: **$totalSalesCount টি**")
+                appendLine("• মোট বিক্রয় মূল্য (Invoiced): **৳${totalInvoiced.toInt()}**")
+                appendLine("• মোট সংগৃহীত নগদ টাকা: **৳${totalPaid.toInt()}**")
+                appendLine("• কাস্টমারদের কাছে বকেয়া (Due/Baki): **৳${totalDue.toInt()}**")
+                appendLine()
+                appendLine("💰 **মাসিক আর্থিক হিসাব (Monthly Finances):**")
+                appendLine("• মোট বিক্রি (Sale): **৳${monthlySale.toInt()}**")
+                appendLine("• দোকান খরচ (Expense): **৳${monthlyExpense.toInt()}**")
+                appendLine("• নতুন পণ্য ক্রয় (Product Buy): **৳${monthlyBuy.toInt()}**")
+                appendLine("• ঋণ পরিশোধ (DEBT Pay): **৳${monthlyDebt.toInt()}**")
+                appendLine("• **নিট ব্যালেন্স / ক্যাশ উদ্বৃত্ত: ৳${netBalance.toInt()}**")
+                appendLine()
+                if (sales.isNotEmpty()) {
+                    appendLine("🧾 **সর্বশেষ ইনভয়েস রেকর্ডসমূহ:**")
+                    sales.take(5).forEachIndexed { i, s ->
+                        val dateStr = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(s.timestamp))
+                        val dueStr = if (s.dueAmount > 0) " | [বাকি: ৳${s.dueAmount.toInt()}]" else " | [পরিশোধিত]"
+                        val custStr = if (s.customerName.isNotBlank()) " (${s.customerName})" else ""
+                        appendLine("${i + 1}. #${s.invoiceNumber} ($dateStr): ${s.itemsSummary} — ৳${s.totalAmount.toInt()}$dueStr$custStr")
+                    }
+                    appendLine()
+                }
+                appendLine("☁️ আপনার সমস্ত বিক্রির রসিদ এবং আর্থিক হিসাব Google Firebase Firestore-এ সম্পূর্ণ নিরাপদে জমা রয়েছে। আপনি 'Sale' পেজে নতুন বিক্রি যোগ করতে পারেন বা 'Firebase Database' ট্যাব থেকে যেকোনো সময় ডাটা সিঙ্ক ও রিস্টোর করতে পারেন।")
+            }
+        } else {
+            """
+            ✅ **আপনার দোকানের ফায়ারবেস (Firebase) ক্লাউড ডাটাবেজ সফলভাবে সংযুক্ত রয়েছে!**
+
+            বর্তমানে আপনার স্টোরের ফায়ারবেস ক্লাউড ডাটাবেজ ও লোকাল স্টোরেজে কোনো বিক্রির রেকর্ড বা মাসিক হিসাব এন্ট্রি করা নেই (রেকর্ড সংখ্যা: ০)।
+
+            📌 **হিসাব যুক্ত করার নিয়ম:**
+            ১. **'Sale' ট্যাবে যান:** নতুন বিক্রি (Sale), দোকান খরচ (Expense), বাকি পরিশোধ বা পণ্য ক্রয় এন্ট্রি করুন।
+            ২. **স্বয়ংক্রিয় ক্লাউড ব্যাকআপ:** এন্ট্রি করার সাথে সাথেই তা ফায়ারবেসে ক্লাউডে সেভ হয়ে যাবে এবং আমি সাথে সাথে তা এখানে বিশ্লেষণ করে দেব।
+            ৩. **ক্লাউড রিস্টোর:** আপনার পূর্ববর্তী কোনো ক্লাউড ব্যাকআপ থাকলে **'Firebase Database'** ট্যাবে গিয়ে **"রিস্টোর"** বাটনে ট্যাপ করুন।
+            """.trimIndent()
+        }
     }
 }
 

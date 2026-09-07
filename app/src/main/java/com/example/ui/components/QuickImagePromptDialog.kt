@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
@@ -52,6 +54,7 @@ fun QuickImagePromptDialog(
 ) {
     var prompt by remember { mutableStateOf("") }
     val pollinationsAccent = Color(0xFF7C4DFF)
+    val scrollState = rememberScrollState()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -64,7 +67,11 @@ fun QuickImagePromptDialog(
                 .fillMaxWidth(0.92f)
                 .padding(vertical = 24.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(scrollState)
+            ) {
                 // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -89,11 +96,11 @@ fun QuickImagePromptDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "ইমেজ জেনারেটর (Pollinations AI)",
+                                text = "ইমেজ জেনারেটর (AI Visual Engine)",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "যেকোনো বিবরণ লিখে এক ক্লিকে ছবি তৈরি করুন",
+                                text = "বাংলা, Banglish বা ইংরেজি প্রম্পট লিখুন",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -115,7 +122,7 @@ fun QuickImagePromptDialog(
                     value = prompt,
                     onValueChange = { prompt = it },
                     label = { Text("ছবির বিবরণ (Prompt)") },
-                    placeholder = { Text("যেমন: প্রিমিয়াম সিল্ক জামদানি শাড়ি, আধুনিক খাদি পাঞ্জাবি, ফ্যাশন স্টুডিও...") },
+                    placeholder = { Text("যেমন: সাদা background এ একটা কালো cargo pant দেখাও...") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(110.dp)
@@ -123,47 +130,72 @@ fun QuickImagePromptDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "💡 দ্রুত আইডিয়া নির্বাচন করুন:",
+                    text = "💡 রেডিমেড টেস্ট প্রম্পটসমূহ (ট্যাপ করে লোড করুন):",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.primary
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                val suggestions = listOf(
-                    "আধুনিক কটন পাঞ্জাবি ডিজাইন",
-                    "হ্যান্ডলুম সিল্ক শাড়ি ক্যাটালগ",
-                    "ল্যাক্সারি বুটিক শপ শোকেস",
-                    "ফ্যাশন মডেল ব্র্যান্ড ফটোশুট",
-                    "মিনিমালিস্ট অ্যাপারেল ব্র্যান্ড লোগো"
+                val sampleCategories = listOf(
+                    "📦 Product Photography" to listOf(
+                        "সাদা background এ একটা কালো cargo pant দেখাও",
+                        "একটি গোল্ডেন মেটালিক লাক্সারি পারফিউম বোতল, চারকোনা স্কয়ার ফরম্যাট",
+                        "সাদা ব্যাকগ্রাউন্ডে আধুনিক ব্ল্যাক স্নিকার্স জুতো"
+                    ),
+                    "💃 Fashion & Model" to listOf(
+                        "নীল রঙের জামদানি শাড়ি পরা একজন বাংলাদেশি নারী মডেল, স্টুডিও লাইটিং",
+                        "কালো লেদার জ্যাকেট পরা একজন পুরুষ ফ্যাশন মডেলের পোর্ট্রেট"
+                    ),
+                    "🔤 Banglish & English" to listOf(
+                        "sada background e black shoe dekhao",
+                        "ekta red hoodie er front view photo dao",
+                        "Front view photorealistic red hoodie on mannequin"
+                    ),
+                    "✍️ Text in Image" to listOf(
+                        "টেবিলে রাখা একটি সাদা কফি মগ যাতে 'DAILY FOCUS' লেখা আছে"
+                    )
                 )
 
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    suggestions.forEach { sug ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { prompt = sug }
-                        ) {
-                            Text(
-                                text = sug,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
+                sampleCategories.forEach { (categoryName, samples) ->
+                    Text(
+                        text = categoryName,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 4.dp)
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        samples.forEach { sug ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (prompt == sug) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, if (prompt == sug) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { prompt = sug }
+                            ) {
+                                Text(
+                                    text = sug,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = if (prompt == sug) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
                     onClick = {
@@ -188,7 +220,7 @@ fun QuickImagePromptDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "ছবি তৈরি করুন (Pollinations AI)",
+                        text = "ছবি তৈরি করুন (Generate Visual)",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }

@@ -42,8 +42,9 @@ class SaleFirestoreManager(
         firestoreInstance ?: try {
             FirebaseFirestore.getInstance().apply {
                 try {
+                    val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder().build()
                     val settings = FirebaseFirestoreSettings.Builder()
-                        .setPersistenceEnabled(true)
+                        .setLocalCacheSettings(cacheSettings)
                         .build()
                     firestoreSettings = settings
                 } catch (e: Exception) {
@@ -258,6 +259,172 @@ class SaleFirestoreManager(
         awaitClose {
             listenerRegistration?.remove()
         }
+    }
+
+    /**
+     * Asynchronously saves a monthly finance record using coroutines.
+     */
+    suspend fun saveMonthlyFinanceAsync(finance: MonthlyFinanceEntity): Result<String> {
+        return suspendCancellableCoroutine { continuation ->
+            saveMonthlyFinance(finance) { success, errorMsg ->
+                if (continuation.isActive) {
+                    if (success) {
+                        val docId = if (finance.id != 0L) "FIN_${finance.type}_${finance.id}" else "FIN_${finance.type}_${finance.timestamp}"
+                        continuation.resume(Result.success(docId))
+                    } else {
+                        continuation.resume(Result.failure(Exception(errorMsg ?: "Failed to save monthly finance")))
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Parses Firestore document Map to SaleRecordEntity.
+     */
+    fun fromFirestoreSaleDocument(data: Map<String, Any?>): SaleRecordEntity? {
+        return try {
+            val invoiceNumber = data["invoiceNumber"] as? String ?: return null
+            val id = (data["id"] as? Number)?.toLong() ?: 0L
+            val customerName = data["customerName"] as? String ?: ""
+            val customerPhone = data["customerPhone"] as? String ?: ""
+            val itemsSummary = data["itemsSummary"] as? String ?: "Sale item"
+            val itemsCount = (data["itemsCount"] as? Number)?.toInt() ?: 1
+            val subtotal = (data["subtotal"] as? Number)?.toDouble() ?: 0.0
+            val discount = (data["discount"] as? Number)?.toDouble() ?: 0.0
+            val totalAmount = (data["totalAmount"] as? Number)?.toDouble() ?: 0.0
+            val paidAmount = (data["paidAmount"] as? Number)?.toDouble() ?: 0.0
+            val dueAmount = (data["dueAmount"] as? Number)?.toDouble() ?: 0.0
+            val paymentMethod = data["paymentMethod"] as? String ?: "CASH"
+            val note = data["note"] as? String ?: ""
+            val timestamp = (data["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+
+            SaleRecordEntity(
+                id = id,
+                invoiceNumber = invoiceNumber,
+                customerName = customerName,
+                customerPhone = customerPhone,
+                itemsSummary = itemsSummary,
+                itemsCount = itemsCount,
+                subtotal = subtotal,
+                discount = discount,
+                totalAmount = totalAmount,
+                paidAmount = paidAmount,
+                dueAmount = dueAmount,
+                paymentMethod = paymentMethod,
+                note = note,
+                timestamp = timestamp
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing Firestore sale document: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Parses Firestore document Map to MonthlyFinanceEntity.
+     */
+    fun fromFirestoreFinanceDocument(data: Map<String, Any?>): MonthlyFinanceEntity? {
+        return try {
+            val type = data["type"] as? String ?: return null
+            val title = data["title"] as? String ?: return null
+            val id = (data["id"] as? Number)?.toLong() ?: 0L
+            val amount = (data["amount"] as? Number)?.toDouble() ?: 0.0
+            val category = data["category"] as? String ?: ""
+            val monthYear = data["monthYear"] as? String ?: ""
+            val note = data["note"] as? String ?: ""
+            val timestamp = (data["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+
+            MonthlyFinanceEntity(
+                id = id,
+                type = type,
+                title = title,
+                amount = amount,
+                category = category,
+                monthYear = monthYear,
+                note = note,
+                timestamp = timestamp
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing Firestore finance document: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Fetches all sale records from Firestore.
+     */
+    suspend fun fetchAllSalesFromFirestore(): List<SaleRecordEntity> {
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                salesCollection.get()
+                    .addOnSuccessListener { snapshot ->
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            fromFirestoreSaleDocument(doc.data ?: emptyMap())
+                        }.sortedByDescending { it.timestamp }
+                        if (continuation.isActive) continuation.resume(list)
+                    }
+                    .addOnFailureListener { exception ->
+                        Log.e(TAG, "Failed to fetch sales from Firestore: ${exception.message}")
+                        if (continuation.isActive) continuation.resume(emptyList())
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception fetching sales: ${e.message}", e)
+                if (continuation.isActive) continuation.resume(emptyList())
+            }
+        }
+    }
+
+    /**
+     * Fetches all monthly finances from Firestore.
+     */
+    suspend fun fetchAllFinancesFromFirestore(): List<MonthlyFinanceEntity> {
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                financesCollection.get()
+                    .addOnSuccessListener { snapshot ->
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            fromFirestoreFinanceDocument(doc.data ?: emptyMap())
+                        }.sortedByDescending { it.timestamp }
+                        if (continuation.isActive) continuation.resume(list)
+                    }
+                    .addOnFailureListener { exception ->
+                        Log.e(TAG, "Failed to fetch finances from Firestore: ${exception.message}")
+                        if (continuation.isActive) continuation.resume(emptyList())
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception fetching finances: ${e.message}", e)
+                if (continuation.isActive) continuation.resume(emptyList())
+            }
+        }
+    }
+
+    /**
+     * Syncs all sales and monthly finances to Firestore safely with async awaits.
+     * Returns Pair(salesSyncedCount, financesSyncedCount).
+     */
+    suspend fun syncAllToFirestore(
+        sales: List<SaleRecordEntity>,
+        finances: List<MonthlyFinanceEntity>
+    ): Pair<Int, Int> {
+        var salesSynced = 0
+        var financesSynced = 0
+
+        for (sale in sales) {
+            val result = saveSaleAsync(sale)
+            if (result.isSuccess) {
+                salesSynced++
+            }
+        }
+
+        for (finance in finances) {
+            val result = saveMonthlyFinanceAsync(finance)
+            if (result.isSuccess) {
+                financesSynced++
+            }
+        }
+
+        return Pair(salesSynced, financesSynced)
     }
 }
 

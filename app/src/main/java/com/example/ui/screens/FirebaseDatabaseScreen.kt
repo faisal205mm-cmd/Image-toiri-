@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DataUsage
@@ -182,7 +183,7 @@ fun FirebaseDatabaseScreen(
                     // Action buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
                             onClick = {
@@ -194,7 +195,7 @@ fun FirebaseDatabaseScreen(
                             },
                             enabled = !isSyncing,
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(1.2f)
                                 .testTag("btn_sync_firestore"),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
@@ -207,7 +208,7 @@ fun FirebaseDatabaseScreen(
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("সিঙ্ক হচ্ছে...", fontSize = 13.sp)
+                                Text("সিঙ্ক হচ্ছে...", fontSize = 12.sp)
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.CloudSync,
@@ -215,8 +216,30 @@ fun FirebaseDatabaseScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("ক্লাউডে সিঙ্ক করুন", fontSize = 13.sp)
+                                Text("ক্লাউডে সিঙ্ক", fontSize = 12.sp)
                             }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isSyncing = true
+                                viewModel.restoreAllFromFirestore { count, msg ->
+                                    isSyncing = false
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = !isSyncing,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_restore_firestore")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("রিস্টোর", fontSize = 12.sp)
                         }
 
                         OutlinedButton(
@@ -231,8 +254,38 @@ fun FirebaseDatabaseScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Sale এ যান", fontSize = 13.sp)
+                            Text("Sale পেজ", fontSize = 12.sp)
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // AI Chat Query Button
+                    Button(
+                        onClick = {
+                            viewModel.selectMainTab(MainAppTab.AI_CHAT)
+                            viewModel.sendChatMessage("আমার দোকানে ক্লাউডে ব্যাকআপ রাখা বিক্রির হিসাব এবং মোট লাভের বিস্তারিত পর্যালোচনা দাও।")
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_ask_ai_cloud_sales"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "🤖 AI চ্যাটে ক্লাউড সেলসের পূর্ণাঙ্গ হিসাব পর্যালোচনা",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -260,14 +313,14 @@ fun FirebaseDatabaseScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "স্বয়ংক্রিয় ক্লাউড ব্যাকআপ সক্রিয়",
+                            text = "ক্লাউড সিঙ্ক ও AI ইন্টিগ্রেশন সক্রিয়",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "আপনি 'Sale' ট্যাবে যেকোনো এন্ট্রি (Monthly Sale, Expense, DEBT Pay, Product Buy) যোগ করলে তা অ্যাপের লোকাল ডাটাবেজে সেভ হওয়ার সাথে সাথে Firebase Firestore কালেকশনে 'monthly_finances' এ স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়ে যায়।",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            text = "আপনার দোকানের সমস্ত বিক্রির ইনভয়েস ('sales_records') এবং মাসিক আয়-ব্যয়-ঋণ-পণ্য ক্রয় ('monthly_finances') Firebase Firestore ক্লাউডে নিরাপদে জমা থাকে। অ্যাপ আপডেট করলেও যে কোনো সময় AI চ্যাটে কমান্ড দিলে সমস্ত ডাটা স্বয়ংক্রিয়ভাবে উদ্ধার ও পর্যালোচনা করে নির্ভুল উত্তর দেবে।",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

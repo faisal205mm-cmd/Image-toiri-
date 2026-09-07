@@ -108,8 +108,14 @@ interface SaleDao {
     @Query("SELECT * FROM sales_records ORDER BY timestamp DESC")
     fun getAllSales(): Flow<List<SaleRecordEntity>>
 
+    @Query("SELECT * FROM sales_records ORDER BY timestamp DESC")
+    suspend fun getAllSalesDirect(): List<SaleRecordEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSale(sale: SaleRecordEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSales(sales: List<SaleRecordEntity>): List<Long>
 
     @Delete
     suspend fun deleteSale(sale: SaleRecordEntity)
@@ -129,6 +135,9 @@ interface MonthlyFinanceDao {
     @Query("SELECT * FROM monthly_finances ORDER BY timestamp DESC")
     fun getAllFinances(): Flow<List<MonthlyFinanceEntity>>
 
+    @Query("SELECT * FROM monthly_finances ORDER BY timestamp DESC")
+    suspend fun getAllFinancesDirect(): List<MonthlyFinanceEntity>
+
     @Query("SELECT * FROM monthly_finances WHERE type = :type ORDER BY timestamp DESC")
     fun getFinancesByType(type: String): Flow<List<MonthlyFinanceEntity>>
 
@@ -137,6 +146,9 @@ interface MonthlyFinanceDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFinance(finance: MonthlyFinanceEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFinances(finances: List<MonthlyFinanceEntity>): List<Long>
 
     @Delete
     suspend fun deleteFinance(finance: MonthlyFinanceEntity)

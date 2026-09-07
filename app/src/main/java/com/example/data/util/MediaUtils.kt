@@ -221,4 +221,43 @@ object MediaUtils {
             Toast.makeText(context, "No app available to open this file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
+
+    /**
+     * Saves an image file to the device's public Pictures directory / Gallery
+     */
+    fun saveImageToGallery(context: Context, sourcePath: String): Pair<Boolean, String> {
+        return try {
+            val sourceFile = File(sourcePath)
+            if (!sourceFile.exists() || sourceFile.length() == 0L) {
+                return Pair(false, "ফাইল খুঁজে পাওয়া যায়নি")
+            }
+            val filename = "AI_Studio_${System.currentTimeMillis()}.jpg"
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/AIStudio")
+                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: return Pair(false, "গ্যালারিতে স্টোরেজ তৈরি করা সম্ভব হয়নি")
+
+            resolver.openOutputStream(uri)?.use { out ->
+                sourceFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            } ?: return Pair(false, "ফাইল রাইট করা যায়নি")
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+            Pair(true, "ছবিটি ডিভাইসের Pictures / Gallery-তে সেভ হয়েছে!")
+        } catch (e: Exception) {
+            Pair(false, "সেভ করতে ত্রুটি: ${e.localizedMessage}")
+        }
+    }
 }

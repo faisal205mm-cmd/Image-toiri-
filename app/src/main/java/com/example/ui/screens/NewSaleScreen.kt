@@ -24,10 +24,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Inventory2
@@ -35,13 +39,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PointOfSale
-import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -70,6 +73,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.ui.viewmodel.AdvisorViewModel
 import java.text.NumberFormat
@@ -94,6 +98,9 @@ fun NewSaleScreen(
     val totalDebtPay by viewModel.totalMonthlyDebtPay.collectAsState()
     val totalProductBuy by viewModel.totalMonthlyProductBuy.collectAsState()
     val netBalance by viewModel.netBalance.collectAsState()
+
+    val syncStatus by viewModel.firestoreSyncStatus.collectAsStateWithLifecycle()
+    var isSyncing by remember { mutableStateOf(false) }
 
     // State for Add Dialog
     var activeAddType by remember { mutableStateOf<String?>(null) } // "SALE", "EXPENSE", "DEBT_PAY", "PRODUCT_BUY"
@@ -128,7 +135,16 @@ fun NewSaleScreen(
                     onAskAiAudit = {
                         viewModel.askAiAboutFinances("ALL")
                         Toast.makeText(context, "AI আর্থিক অডিট শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
-                    }
+                    },
+                    onSyncCloud = {
+                        isSyncing = true
+                        viewModel.syncAllSalesToFirestore { _, msg ->
+                            isSyncing = false
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    isSyncing = isSyncing,
+                    syncStatus = syncStatus
                 )
             }
 
@@ -177,7 +193,7 @@ fun NewSaleScreen(
                     itemCount = monthlySales.size,
                     barColor = Color(0xFF2E7D32), // Emerald Green
                     containerColor = Color(0xFFE8F5E9),
-                    icon = Icons.Default.TrendingUp,
+                    icon = Icons.AutoMirrored.Filled.TrendingUp,
                     isExpanded = isSaleExpanded,
                     onToggleExpand = { isSaleExpanded = !isSaleExpanded },
                     onAddClick = { activeAddType = "SALE" },
@@ -201,7 +217,7 @@ fun NewSaleScreen(
                     itemCount = monthlyExpenses.size,
                     barColor = Color(0xFFE65100), // Vibrant Amber/Orange
                     containerColor = Color(0xFFFFF3E0),
-                    icon = Icons.Default.ReceiptLong,
+                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
                     isExpanded = isExpenseExpanded,
                     onToggleExpand = { isExpenseExpanded = !isExpenseExpanded },
                     onAddClick = { activeAddType = "EXPENSE" },
@@ -308,7 +324,10 @@ fun MonthlyFinancialSummaryCard(
     totalDebtPay: Double,
     totalProductBuy: Double,
     netBalance: Double,
-    onAskAiAudit: () -> Unit
+    onAskAiAudit: () -> Unit,
+    onSyncCloud: () -> Unit = {},
+    isSyncing: Boolean = false,
+    syncStatus: String? = null
 ) {
     val isPositive = netBalance >= 0
     val totalOutflow = totalExpense + totalDebtPay + totalProductBuy
@@ -426,29 +445,93 @@ fun MonthlyFinancialSummaryCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // One-tap AI Audit Button
-            Button(
-                onClick = onAskAiAudit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("btn_ai_audit"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ),
-                shape = RoundedCornerShape(10.dp)
+            // Dual Action Buttons: Cloud Sync & AI Audit
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "🤖 AI দিয়ে এই মাসের পূর্ণাঙ্গ হিসাব অডিট করুন",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
+                Button(
+                    onClick = onSyncCloud,
+                    enabled = !isSyncing,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("btn_cloud_sync_new_sale"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("সিঙ্ক হচ্ছে...", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("ক্লাউডে সিঙ্ক", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Button(
+                    onClick = onAskAiAudit,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("btn_ai_audit"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AI অডিট রিপোর্ট",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            if (!syncStatus.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = syncStatus,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }

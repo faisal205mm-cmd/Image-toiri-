@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
@@ -87,6 +88,27 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         updatePollinationsApiKeyStatus()
         loadInitialProfile()
         seedSampleDataIfEmpty()
+        autoRestoreFromCloudIfEmpty()
+    }
+
+    private fun autoRestoreFromCloudIfEmpty() {
+        viewModelScope.launch {
+            try {
+                val localSales = repository.getAllSalesDirect()
+                val localFinances = repository.getAllFinancesDirect()
+                if (localSales.isEmpty() && localFinances.isEmpty()) {
+                    _firestoreSyncStatus.value = "ক্লাউড থেকে ডাটা সিঙ্ক হচ্ছে..."
+                    val (restoredSales, restoredFinances) = repository.restoreAllFromFirestore()
+                    if (restoredSales > 0 || restoredFinances > 0) {
+                        _firestoreSyncStatus.value = "ক্লাউড থেকে $restoredSales টি বিক্রি ও $restoredFinances টি হিসাব পুনরুদ্ধার হয়েছে"
+                    } else {
+                        _firestoreSyncStatus.value = "সংযুক্ত (Connected)"
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AdvisorViewModel", "Auto cloud sync notice: ${e.message}")
+            }
+        }
     }
 
     private fun updateApiKeyStatus() {
@@ -210,15 +232,39 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     fun syncAllSalesToFirestore(onResult: ((Int, String) -> Unit)? = null) {
         viewModelScope.launch {
-            _firestoreSyncStatus.value = "সিঙ্ক হচ্ছে (Syncing)..."
-            val sales = allSales.value
-            var count = 0
-            sales.forEach { sale ->
-                repository.getFirestoreManager().saveSale(sale)
-                count++
+            _firestoreSyncStatus.value = "ক্লাউডে সিঙ্ক হচ্ছে..."
+            try {
+                val (salesCount, financesCount) = repository.syncAllToFirestore()
+                val total = salesCount + financesCount
+                val msg = "সফলভাবে $salesCount টি বিক্রির রেকর্ড ও $financesCount টি আর্থিক হিসাব ক্লাউডে সিঙ্ক হয়েছে"
+                _firestoreSyncStatus.value = msg
+                onResult?.invoke(total, msg)
+            } catch (e: Exception) {
+                val errorMsg = "সিঙ্ক ত্রুটি: ${e.localizedMessage ?: "Firebase সমস্যা"}"
+                _firestoreSyncStatus.value = errorMsg
+                onResult?.invoke(0, errorMsg)
             }
-            _firestoreSyncStatus.value = "সফলভাবে $count টি রেকর্ড ক্লাউডে সিঙ্ক হয়েছে"
-            onResult?.invoke(count, "$count টি বিক্রির রেকর্ড Firebase Firestore এ সংরক্ষিত হয়েছে")
+        }
+    }
+
+    fun restoreAllFromFirestore(onResult: ((Int, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _firestoreSyncStatus.value = "ক্লাউড থেকে রিস্টোর হচ্ছে..."
+            try {
+                val (salesCount, financesCount) = repository.restoreAllFromFirestore()
+                val total = salesCount + financesCount
+                val msg = if (total > 0) {
+                    "ক্লাউড থেকে $salesCount টি বিক্রির রেকর্ড ও $financesCount টি আর্থিক হিসাব সফলভাবে রিস্টোর হয়েছে"
+                } else {
+                    "ক্লাউডে কোনো সংরক্ষিত ডাটা পাওয়া যায়নি"
+                }
+                _firestoreSyncStatus.value = msg
+                onResult?.invoke(total, msg)
+            } catch (e: Exception) {
+                val errorMsg = "রিস্টোর ত্রুটি: ${e.localizedMessage ?: "ক্লাউড সংযোগ ত্রুটি"}"
+                _firestoreSyncStatus.value = errorMsg
+                onResult?.invoke(0, errorMsg)
+            }
         }
     }
 

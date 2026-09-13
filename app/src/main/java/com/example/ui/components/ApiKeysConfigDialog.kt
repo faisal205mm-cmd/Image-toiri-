@@ -41,12 +41,12 @@ fun ApiKeysConfigDialog(
     onSaveGeminiKey: (String) -> Unit,
     onClearGeminiKey: () -> Unit,
     onTestGeminiKey: (String, (Boolean, String) -> Unit) -> Unit,
-    pollinationsApiKeyStatus: Pair<Boolean, String>,
-    customPollinationsKey: String,
-    isPollinationsTesting: Boolean,
-    onSavePollinationsKey: (String) -> Unit,
-    onClearPollinationsKey: () -> Unit,
-    onTestPollinationsKey: (String, (Boolean, String) -> Unit) -> Unit,
+    pollinationsApiKeyStatus: Pair<Boolean, String> = Pair(true, ""),
+    customPollinationsKey: String = "",
+    isPollinationsTesting: Boolean = false,
+    onSavePollinationsKey: (String) -> Unit = {},
+    onClearPollinationsKey: () -> Unit = {},
+    onTestPollinationsKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
     onQuickPromptSelected: ((String) -> Unit)? = null
 ) {
     Dialog(
@@ -90,11 +90,11 @@ fun ApiKeysConfigDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "API Keys & AI Engines",
+                                text = "API Key Configuration",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Gemini AI ও Pollinations ইমেজ ইঞ্জিন সেটিংস",
+                                text = "Gemini AI API Key সেটিংস",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -112,7 +112,7 @@ fun ApiKeysConfigDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 1. Gemini API Key Bar
+                // Gemini API Key Bar
                 GeminiApiKeyBar(
                     apiKeyStatus = geminiApiKeyStatus,
                     customApiKey = customGeminiKey,
@@ -123,27 +123,10 @@ fun ApiKeysConfigDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // 2. Pollinations API Key Bar (Directly below Gemini API Key Bar)
-                PollinationsApiKeyBar(
-                    apiKeyStatus = pollinationsApiKeyStatus,
-                    customApiKey = customPollinationsKey,
-                    isApiKeyTesting = isPollinationsTesting,
-                    onSaveApiKey = onSavePollinationsKey,
-                    onClearApiKey = onClearPollinationsKey,
-                    onTestApiKey = onTestPollinationsKey,
-                    onQuickPromptSelected = { prompt ->
-                        onDismiss()
-                        onQuickPromptSelected?.invoke(prompt)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "💡 টিপস: Gemini API কি চ্যাটিং ও পরামর্শের জন্য এবং Pollinations যেকোনো পোশাক ও থিমের দ্রুত ইমেজ তৈরির জন্য ব্যবহৃত হয়।",
+                    text = "💡 টিপস: Gemini API কি চ্যাটিং, কাপড়ের হিসাব ও এআই ব্যবসায়িক পরামর্শের জন্য ব্যবহৃত হয়।",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.outline
                 )

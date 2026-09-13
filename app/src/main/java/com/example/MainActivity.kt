@@ -106,14 +106,10 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
     val customApiKey by viewModel.customApiKey.collectAsStateWithLifecycle()
     val apiKeyStatus by viewModel.apiKeyStatus.collectAsStateWithLifecycle()
     val isApiKeyTesting by viewModel.apiKeyTesting.collectAsStateWithLifecycle()
-    val customPollinationsApiKey by viewModel.customPollinationsApiKey.collectAsStateWithLifecycle()
-    val pollinationsApiKeyStatus by viewModel.pollinationsApiKeyStatus.collectAsStateWithLifecycle()
-    val isPollinationsTesting by viewModel.pollinationsTesting.collectAsStateWithLifecycle()
     val selectedMainTab by viewModel.selectedMainTab.collectAsStateWithLifecycle()
     val allFinances by viewModel.allFinances.collectAsStateWithLifecycle()
 
     var showApiKeysDialog by remember { mutableStateOf(false) }
-    var showQuickImageDialog by remember { mutableStateOf(false) }
     var showTopMoreMenu by remember { mutableStateOf(false) }
 
     val currentSession = allSessions.find { it.id == currentSessionId }
@@ -157,21 +153,6 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                     },
                     onTestApiKey = { key, onComplete ->
                         viewModel.testApiKey(key, onComplete)
-                    },
-                    pollinationsApiKeyStatus = pollinationsApiKeyStatus,
-                    customPollinationsApiKey = customPollinationsApiKey,
-                    isPollinationsTesting = isPollinationsTesting,
-                    onSavePollinationsApiKey = { key ->
-                        viewModel.savePollinationsApiKey(key)
-                    },
-                    onClearPollinationsApiKey = {
-                        viewModel.clearPollinationsApiKey()
-                    },
-                    onTestPollinationsApiKey = { key, onComplete ->
-                        viewModel.testPollinationsApiKey(key, onComplete)
-                    },
-                    onQuickImagePrompt = { prompt ->
-                        viewModel.quickGenerateImage(prompt)
                     }
                 )
             }
@@ -371,7 +352,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                                 Text(
-                                                    "Gemini & Pollinations Keys",
+                                                    "Gemini API Key",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -389,35 +370,6 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                             showApiKeysDialog = true
                                         },
                                         modifier = Modifier.testTag("menu_api_keys_item")
-                                    )
-
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(
-                                                    "AI Image Generator",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Text(
-                                                    "Pollinations AI (যেকোনো ছবি তৈরি)",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFF7C4DFF)
-                                                )
-                                            }
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Palette,
-                                                contentDescription = null,
-                                                tint = Color(0xFF7C4DFF)
-                                            )
-                                        },
-                                        onClick = {
-                                            showTopMoreMenu = false
-                                            showQuickImageDialog = true
-                                        },
-                                        modifier = Modifier.testTag("menu_generate_image_item")
                                     )
 
                                     HorizontalDivider()
@@ -657,27 +609,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
             isGeminiTesting = isApiKeyTesting,
             onSaveGeminiKey = { viewModel.saveCustomApiKey(it) },
             onClearGeminiKey = { viewModel.clearCustomApiKey() },
-            onTestGeminiKey = { key, callback -> viewModel.testApiKey(key, callback) },
-            pollinationsApiKeyStatus = pollinationsApiKeyStatus,
-            customPollinationsKey = customPollinationsApiKey,
-            isPollinationsTesting = isPollinationsTesting,
-            onSavePollinationsKey = { viewModel.savePollinationsApiKey(it) },
-            onClearPollinationsKey = { viewModel.clearPollinationsApiKey() },
-            onTestPollinationsKey = { key, callback -> viewModel.testPollinationsApiKey(key, callback) },
-            onQuickPromptSelected = { prompt ->
-                showApiKeysDialog = false
-                viewModel.quickGenerateImage(prompt)
-            }
-        )
-    }
-
-    if (showQuickImageDialog) {
-        QuickImagePromptDialog(
-            onDismiss = { showQuickImageDialog = false },
-            onGenerate = { prompt ->
-                showQuickImageDialog = false
-                viewModel.quickGenerateImage(prompt)
-            }
+            onTestGeminiKey = { key, callback -> viewModel.testApiKey(key, callback) }
         )
     }
 }

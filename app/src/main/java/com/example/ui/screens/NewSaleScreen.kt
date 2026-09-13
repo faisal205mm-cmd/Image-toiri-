@@ -24,12 +24,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CreditCard
@@ -78,6 +82,7 @@ import com.example.data.db.MonthlyFinanceEntity
 import com.example.ui.viewmodel.AdvisorViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -111,9 +116,8 @@ fun NewSaleScreen(
     var isDebtExpanded by remember { mutableStateOf(true) }
     var isProductBuyExpanded by remember { mutableStateOf(true) }
 
-    val currentMonthYear = remember {
-        SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(Date())
-    }
+    val selectedMonthYear by viewModel.selectedMonthYear.collectAsState()
+    var showCalendarPicker by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -126,12 +130,15 @@ fun NewSaleScreen(
             // --- Top Financial Overview & Net Balance Card ---
             item {
                 MonthlyFinancialSummaryCard(
-                    monthYear = currentMonthYear,
+                    monthYear = selectedMonthYear,
                     totalSale = totalSale,
                     totalExpense = totalExpense,
                     totalDebtPay = totalDebtPay,
                     totalProductBuy = totalProductBuy,
                     netBalance = netBalance,
+                    onOpenCalendar = { showCalendarPicker = true },
+                    onPreviousMonth = { viewModel.selectPreviousMonth() },
+                    onNextMonth = { viewModel.selectNextMonth() },
                     onAskAiAudit = {
                         viewModel.askAiAboutFinances("ALL")
                         Toast.makeText(context, "AI আর্থিক অডিট শুরু হচ্ছে...", Toast.LENGTH_SHORT).show()
@@ -293,7 +300,7 @@ fun NewSaleScreen(
         activeAddType?.let { type ->
             AddFinanceEntryDialog(
                 type = type,
-                monthYear = currentMonthYear,
+                monthYear = selectedMonthYear,
                 onDismiss = { activeAddType = null },
                 onSave = { title, amount, category, note ->
                     viewModel.addMonthlyFinance(
@@ -302,11 +309,23 @@ fun NewSaleScreen(
                         amount = amount,
                         category = category,
                         note = note,
-                        monthYear = currentMonthYear
+                        monthYear = selectedMonthYear
                     ) {
                         Toast.makeText(context, "ডাটাবেজে সফলভাবে সংরক্ষণ করা হয়েছে", Toast.LENGTH_SHORT).show()
                     }
                     activeAddType = null
+                }
+            )
+        }
+
+        // Calendar Month-Year Picker Dialog
+        if (showCalendarPicker) {
+            MonthYearCalendarPickerDialog(
+                currentMonthYear = selectedMonthYear,
+                onDismiss = { showCalendarPicker = false },
+                onSelectMonthYear = { chosenMonthYear ->
+                    viewModel.selectMonthYear(chosenMonthYear)
+                    Toast.makeText(context, "$chosenMonthYear এর হিসাব সিলেক্ট করা হয়েছে", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -324,6 +343,9 @@ fun MonthlyFinancialSummaryCard(
     totalDebtPay: Double,
     totalProductBuy: Double,
     netBalance: Double,
+    onOpenCalendar: () -> Unit = {},
+    onPreviousMonth: () -> Unit = {},
+    onNextMonth: () -> Unit = {},
     onAskAiAudit: () -> Unit,
     onSyncCloud: () -> Unit = {},
     isSyncing: Boolean = false,
@@ -346,37 +368,86 @@ fun MonthlyFinancialSummaryCard(
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            // Header with month
+            // Header with interactive Calendar month/year & navigation
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CalendarMonth,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = monthYear,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                // Interactive Calendar & Month Selector Pill
+                Surface(
+                    onClick = onOpenCalendar,
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier.testTag("btn_select_month_year_calendar")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = "ক্যালেন্ডার খুলুন",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = monthYear,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "ক্যালেন্ডার থেকে মাস নির্বাচন করুন",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
-                Surface(
-                    color = if (isPositive) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text(
-                        text = if (isPositive) "মুনাফা / সারপ্লাস" else "ঘাটতি / সতর্কবার্তা",
-                        color = if (isPositive) Color(0xFF2E7D32) else Color(0xFFC62828),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                // Month Nav controls & Profit badge
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPreviousMonth,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("btn_prev_month")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
+                            contentDescription = "পূর্ববর্তী মাস",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onNextMonth,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("btn_next_month")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = "পরবর্তী মাস",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Surface(
+                        color = if (isPositive) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = if (isPositive) "মুনাফা" else "ঘাটতি",
+                            color = if (isPositive) Color(0xFF2E7D32) else Color(0xFFC62828),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -1106,4 +1177,246 @@ fun AddFinanceEntryDialog(
 
 fun formatTaka(amount: Double): String {
     return NumberFormat.getNumberInstance(Locale.US).format(amount.toLong())
+}
+
+// -------------------------------------------------------------
+// Component: Month & Year Calendar Picker Dialog
+// -------------------------------------------------------------
+@Composable
+fun MonthYearCalendarPickerDialog(
+    currentMonthYear: String,
+    onDismiss: () -> Unit,
+    onSelectMonthYear: (String) -> Unit
+) {
+    val sdf = remember { SimpleDateFormat("MMMM yyyy", Locale.ENGLISH) }
+    val initialDate = remember(currentMonthYear) {
+        try {
+            sdf.parse(currentMonthYear) ?: Date()
+        } catch (e: Exception) {
+            Date()
+        }
+    }
+    val initialCal = remember(initialDate) {
+        Calendar.getInstance().apply { time = initialDate }
+    }
+
+    var selectedYear by remember { mutableStateOf(initialCal.get(Calendar.YEAR)) }
+    var selectedMonthIndex by remember { mutableStateOf(initialCal.get(Calendar.MONTH)) } // 0 = Jan .. 11 = Dec
+
+    val months = listOf(
+        Pair("January", "জানুয়ারি"),
+        Pair("February", "ফেব্রুয়ারি"),
+        Pair("March", "মার্চ"),
+        Pair("April", "এপ্রিল"),
+        Pair("May", "মে"),
+        Pair("June", "জুন"),
+        Pair("July", "জুলাই"),
+        Pair("August", "আগস্ট"),
+        Pair("September", "সেপ্টেম্বর"),
+        Pair("October", "অক্টোবর"),
+        Pair("November", "নভেম্বর"),
+        Pair("December", "ডিসেম্বর")
+    )
+
+    AlertDialog(
+        modifier = Modifier.testTag("dialog_month_year_calendar"),
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CalendarMonth,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "মাস ও বছর ক্যালেন্ডার",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "হিসাব দেখতে যেকোনো মাস ও বছর সিলেক্ট করুন",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Year selector controls
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { selectedYear-- },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("btn_cal_prev_year")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronLeft,
+                                contentDescription = "পূর্ববর্তী বছর",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "$selectedYear সাল",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "বছর পরিবর্তন করতে ডানে-বামে ট্যাপ করুন",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { selectedYear++ },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("btn_cal_next_year")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "পরবর্তী বছর",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 12 Months Grid (3 columns x 4 rows)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    for (row in 0 until 4) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            for (col in 0 until 3) {
+                                val monthIdx = row * 3 + col
+                                val (enName, bnName) = months[monthIdx]
+                                val isSelected = monthIdx == selectedMonthIndex
+
+                                Surface(
+                                    onClick = {
+                                        selectedMonthIndex = monthIdx
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("month_item_$monthIdx")
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = bnName,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = enName.take(3),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Quick Short-cuts (Current Month & All Months)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val nowCal = Calendar.getInstance()
+                            selectedYear = nowCal.get(Calendar.YEAR)
+                            selectedMonthIndex = nowCal.get(Calendar.MONTH)
+                            val chosenMonthYear = "${months[selectedMonthIndex].first} $selectedYear"
+                            onSelectMonthYear(chosenMonthYear)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("btn_cal_current_month")
+                    ) {
+                        Text(text = "চলতি মাস", style = MaterialTheme.typography.labelSmall)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onSelectMonthYear("সকল মাস")
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("btn_cal_all_months")
+                    ) {
+                        Text(text = "সকল মাস (All)", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val chosenMonthYear = "${months[selectedMonthIndex].first} $selectedYear"
+                    onSelectMonthYear(chosenMonthYear)
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.testTag("btn_cal_confirm")
+            ) {
+                Text("সেট করুন (${months[selectedMonthIndex].first.take(3)} $selectedYear)")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("btn_cal_cancel")
+            ) {
+                Text("বাতিল")
+            }
+        }
+    )
 }

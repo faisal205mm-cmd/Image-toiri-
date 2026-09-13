@@ -459,7 +459,7 @@ class AdvisorRepository(
                 } else {
                     val parsed = GeminiErrorParser.parse(e)
                     Log.e("AdvisorRepository", "Both Gemini & Pollinations failed. Code: ${parsed.httpCode}, Reason: ${parsed.message}")
-                    modelMessageText = "⚠️ **Image তৈরি করা যায়নি। API/model connection অথবা generation limit পরীক্ষা করুন।**\n\n*কারিগরি বিবরণ (Debug Info):*\n- Status / Error: ${parsed.title}\n- Code: ${parsed.httpCode ?: "N/A"}\n- Details: ${parsed.message}\n- Hint: 3-dot মেনু থেকে Pollinations API Key বা নতুন Gemini Key কনফিগার করতে পারেন।"
+                    modelMessageText = "⚠️ **Image তৈরি করা যায়নি। API/model connection অথবা generation limit পরীক্ষা করুন।**\n\n*কারিগরি বিবরণ (Debug Info):*\n- Status / Error: ${parsed.title}\n- Code: ${parsed.httpCode ?: "N/A"}\n- Details: ${parsed.message}\n- Hint: 3-dot মেনু থেকে নতুন Gemini Key কনফিগার করতে পারেন।"
                 }
             }
         }
@@ -698,17 +698,7 @@ No active Gemini API key was detected. To get real-time AI responses:
                 userPrompt.contains("দোকানের ডাটা", ignoreCase = true) ||
                 userPrompt.contains("হিসাব", ignoreCase = true)
 
-        if (isCloudDataQuery) {
-            try {
-                val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
-                val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
-                if (remoteSales.isNotEmpty()) database.saleDao().insertSales(remoteSales)
-                if (remoteFinances.isNotEmpty()) database.monthlyFinanceDao().insertFinances(remoteFinances)
-            } catch (e: Exception) {
-                android.util.Log.w("AdvisorRepository", "Auto cloud fetch on query notice: ${e.message}")
-            }
-        }
-
+        // Use the live store context (reads instantly from fast local database)
         val storeContext = getLiveStoreBusinessContext()
         val combinedSystemPrompt = """
             [CRITICAL DIRECTIVE - IN-APP CLOTHING STORE MANAGER & LIVE FIREBASE CONNECTIVITY]
@@ -874,6 +864,165 @@ ${parsed.message}
         )
 
         Pair(activeSessionId, modelText)
+    }
+
+    /**
+     * Specialized 1v1 Real-Time Voice Call conversational turn.
+     * Generates concise, natural spoken responses (1-3 sentences without markdown/formatting)
+     * optimized specifically for live telephone-style dialogue and speech synthesis.
+     */
+    suspend fun sendVoiceCallTurn(
+        sessionId: Long?,
+        persona: AdvisorPersona,
+        userSpeech: String,
+        history: List<ChatMessageEntity>
+    ): Pair<Long, String> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val displayPrompt = userSpeech.trim()
+
+        val activeSessionId = if (sessionId == null || sessionId <= 0L) {
+            val autoTitle = "📞 কল: " + (if (displayPrompt.length > 25) displayPrompt.take(25).trim() + "..." else displayPrompt)
+            database.chatDao().insertSession(
+                ChatSessionEntity(
+                    title = autoTitle,
+                    persona = persona.id,
+                    createdAt = now,
+                    updatedAt = now,
+                    messageCount = 0,
+                    lastSnippet = displayPrompt
+                )
+            )
+        } else {
+            sessionId
+        }
+
+        // Save User voice turn
+        database.chatDao().insertMessage(
+            ChatMessageEntity(
+                sessionId = activeSessionId,
+                role = "user",
+                message = "🎙️ $displayPrompt",
+                persona = persona.id,
+                timestamp = now
+            )
+        )
+
+        val apiKey = getEffectiveApiKey()
+        if (apiKey.isBlank()) {
+            val fallback = "আপনার জেমিনি এপিআই কি প্রয়োজন। অনুগ্রহ করে ড্রয়ার মেনু থেকে আপনার কি যুক্ত করে নিন।"
+            database.chatDao().insertMessage(
+                ChatMessageEntity(
+                    sessionId = activeSessionId,
+                    role = "model",
+                    message = fallback,
+                    persona = persona.id,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+            return@withContext Pair(activeSessionId, fallback)
+        }
+
+        val contentsList = mutableListOf<GeminiContent>()
+        // Include last few turns for context
+        val recentHistory = history.takeLast(6)
+        for (item in recentHistory) {
+            val mappedRole = if (item.role == "user") "user" else "model"
+            contentsList.add(
+                GeminiContent(
+                    role = mappedRole,
+                    parts = listOf(GeminiPart(text = item.message.removePrefix("🎙️ ").trim()))
+                )
+            )
+        }
+
+        contentsList.add(
+            GeminiContent(
+                role = "user",
+                parts = listOf(GeminiPart(text = displayPrompt))
+            )
+        )
+
+        val storeContext = getLiveStoreBusinessContext()
+        val voiceCallSystemPrompt = """
+            [DIRECT 1-ON-1 REAL-TIME LIVE VOICE CALL MODE]
+            You are speaking directly on a real-time telephone-style 1v1 voice call with the apparel shop owner.
+            Persona: ${persona.title}.
+            
+            CRITICAL SPOKEN CONVERSATION RULES:
+            1. Speak in warm, polite, and natural spoken Bengali (বাংলা). If the user speaks in English, answer in spoken English.
+            2. Keep your answer SHORT and CRISP: 1 to 3 natural sentences maximum (under 40 words). The user is listening to you on a voice call, so never monologue or give long essays.
+            3. STRICTLY NO MARKDOWN: Never use asterisks (*, **), hashes (#), bullet points (-), numbered lists (1.), tables, code blocks, or emojis.
+            4. Speak like a real human shop assistant on a phone call.
+            5. If asked about today's sales, dues, expenses, or stock, use this real-time shop context:
+            $storeContext
+        """.trimIndent()
+
+        val systemInstruction = GeminiContent(
+            parts = listOf(GeminiPart(text = voiceCallSystemPrompt))
+        )
+
+        val request = GeminiRequest(
+            contents = contentsList,
+            generationConfig = GenerationConfig(
+                temperature = 0.6f,
+                topP = 0.9f
+            ),
+            systemInstruction = systemInstruction
+        )
+
+        var chatResponseText: String? = null
+        val chatModels = listOf(GeminiClient.MODEL_FLASH, GeminiClient.MODEL_FLASH_LITE)
+
+        for (m in chatModels) {
+            try {
+                val response = apiService.generateContent(
+                    model = m,
+                    apiKey = apiKey,
+                    request = request
+                )
+                val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (!text.isNullOrBlank()) {
+                    chatResponseText = text
+                    break
+                }
+            } catch (e: Exception) {
+                Log.w("AdvisorRepository", "Voice call turn attempt failed with $m: ${e.message}")
+            }
+        }
+
+        var spokenReply = chatResponseText?.trim()
+        if (spokenReply.isNullOrBlank()) {
+            spokenReply = "দুঃখিত, কথাটা পরিষ্কার শুনতে পাইনি। আপনি কি আবার একটু বলবেন?"
+        } else {
+            // Clean markdown syntax if any leaked
+            spokenReply = spokenReply
+                .replace(Regex("[*#_~`>-]"), "")
+                .replace(Regex("\\[(.*?)\\]\\(.*?\\)"), "$1")
+                .replace(Regex("\\n+"), " ")
+                .trim()
+        }
+
+        database.chatDao().insertMessage(
+            ChatMessageEntity(
+                sessionId = activeSessionId,
+                role = "model",
+                message = spokenReply,
+                persona = persona.id,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        val existing = database.chatDao().getSessionByIdDirect(activeSessionId)
+        val count = (existing?.messageCount ?: 0) + 2
+        database.chatDao().updateSessionMeta(
+            id = activeSessionId,
+            title = existing?.title ?: ("📞 " + displayPrompt.take(25)),
+            snippet = spokenReply.take(60),
+            updatedAt = System.currentTimeMillis(),
+            count = count
+        )
+
+        Pair(activeSessionId, spokenReply)
     }
 
     // Pricing Audit (Complex financial task -> Gemini Pro)
@@ -1193,20 +1342,25 @@ Format your report as follows:
         var sales = database.saleDao().getAllSalesDirect()
         var finances = database.monthlyFinanceDao().getAllFinancesDirect()
 
-        // Auto-sync latest from Firestore if available
-        try {
-            val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
-            val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
-            if (remoteSales.isNotEmpty()) {
-                database.saleDao().insertSales(remoteSales)
+        // Fast path: if local database has records, use them immediately (<5ms)
+        // Only if local database is completely empty, attempt a quick cloud restore with a 2-second timeout
+        if (sales.isEmpty() && finances.isEmpty()) {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                    val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
+                    val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
+                    if (remoteSales.isNotEmpty()) {
+                        database.saleDao().insertSales(remoteSales)
+                    }
+                    if (remoteFinances.isNotEmpty()) {
+                        database.monthlyFinanceDao().insertFinances(remoteFinances)
+                    }
+                }
                 sales = database.saleDao().getAllSalesDirect()
-            }
-            if (remoteFinances.isNotEmpty()) {
-                database.monthlyFinanceDao().insertFinances(remoteFinances)
                 finances = database.monthlyFinanceDao().getAllFinancesDirect()
+            } catch (e: Exception) {
+                android.util.Log.w("AdvisorRepository", "Auto cloud fetch notice: ${e.message}")
             }
-        } catch (e: Exception) {
-            android.util.Log.w("AdvisorRepository", "Auto cloud fetch notice: ${e.message}")
         }
 
         buildString {

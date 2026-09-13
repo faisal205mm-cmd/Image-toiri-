@@ -14,6 +14,8 @@ import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.repository.AdvisorPersona
 import com.example.data.repository.AdvisorRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +24,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+
+enum class VoiceCallState {
+    IDLE,
+    CONNECTING,   // Dialing / Connecting to AI
+    LISTENING,    // Mic listening to user
+    THINKING,     // AI is generating answer
+    SPEAKING,     // AI is talking aloud via TTS
+    MUTED         // Mic is muted
+}
 
 enum class MainAppTab(val title: String, val bnTitle: String) {
     AI_CHAT("AI Chat", "AI চ্যাট"),
@@ -72,6 +88,226 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     private val _pollinationsTesting = MutableStateFlow(false)
     val pollinationsTesting: StateFlow<Boolean> = _pollinationsTesting.asStateFlow()
+
+    // Voice Assistant (Speech-To-Text & Text-To-Speech)
+    private val voiceAssistant = com.example.data.util.VoiceAssistantManager(application)
+    val isListening: StateFlow<Boolean> = voiceAssistant.isListening
+    val speechPartialText: StateFlow<String> = voiceAssistant.speechPartialText
+    val speechRmsDb: StateFlow<Float> = voiceAssistant.speechRmsDb
+    val speechError: StateFlow<String?> = voiceAssistant.speechError
+    val isSpeaking: StateFlow<Boolean> = voiceAssistant.isSpeaking
+    val currentSpeakingMessageId: StateFlow<Long?> = voiceAssistant.currentSpeakingMessageId
+
+    // Auto Voice Reply preference (persists across launches)
+    private val _autoVoiceReply = MutableStateFlow(prefs.getBoolean("auto_voice_reply", true))
+    val autoVoiceReply: StateFlow<Boolean> = _autoVoiceReply.asStateFlow()
+
+    fun toggleAutoVoiceReply(enabled: Boolean? = null) {
+        val updated = enabled ?: !_autoVoiceReply.value
+        _autoVoiceReply.value = updated
+        prefs.edit().putBoolean("auto_voice_reply", updated).apply()
+    }
+
+    fun startVoiceInput(onCompletedText: ((String) -> Unit)? = null) {
+        voiceAssistant.startListening { recognizedText ->
+            if (recognizedText.isNotBlank()) {
+                _chatInput.value = recognizedText
+                if (onCompletedText != null) {
+                    onCompletedText(recognizedText)
+                } else {
+                    // Send directly as voice query so AI speaks back its answer
+                    sendChatMessage(prompt = recognizedText, isVoiceQuery = true)
+                }
+            }
+        }
+    }
+
+    fun stopVoiceInput() {
+        voiceAssistant.stopListening()
+    }
+
+    fun cancelVoiceInput() {
+        voiceAssistant.cancelListening()
+    }
+
+    fun speakMessage(messageId: Long, text: String) {
+        voiceAssistant.speak(text, messageId)
+    }
+
+    fun stopSpeaking() {
+        voiceAssistant.stopSpeaking()
+    }
+
+    // --- 1v1 Real-Time AI Voice Call Engine ---
+    private val _voiceCallState = MutableStateFlow(VoiceCallState.IDLE)
+    val voiceCallState: StateFlow<VoiceCallState> = _voiceCallState.asStateFlow()
+
+    private val _isCallActive = MutableStateFlow(false)
+    val isCallActive: StateFlow<Boolean> = _isCallActive.asStateFlow()
+
+    private val _callDurationSeconds = MutableStateFlow(0)
+    val callDurationSeconds: StateFlow<Int> = _callDurationSeconds.asStateFlow()
+
+    private val _callUserSpeech = MutableStateFlow("")
+    val callUserSpeech: StateFlow<String> = _callUserSpeech.asStateFlow()
+
+    private val _callAiSpeech = MutableStateFlow("")
+    val callAiSpeech: StateFlow<String> = _callAiSpeech.asStateFlow()
+
+    private val _callTranscript = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    val callTranscript: StateFlow<List<Pair<String, String>>> = _callTranscript.asStateFlow()
+
+    private val _isCallMuted = MutableStateFlow(false)
+    val isCallMuted: StateFlow<Boolean> = _isCallMuted.asStateFlow()
+
+    val isCallSpeakerOn: StateFlow<Boolean> = voiceAssistant.isSpeakerOn
+
+    private var callTimerJob: Job? = null
+
+    fun startVoiceCall() {
+        if (_isCallActive.value) return
+        _isCallActive.value = true
+        _voiceCallState.value = VoiceCallState.CONNECTING
+        _callDurationSeconds.value = 0
+        _callUserSpeech.value = ""
+        _callAiSpeech.value = ""
+        _callTranscript.value = emptyList()
+        _isCallMuted.value = false
+
+        // Start Call Duration Timer
+        callTimerJob?.cancel()
+        callTimerJob = viewModelScope.launch {
+            while (isActive && _isCallActive.value) {
+                delay(1000)
+                _callDurationSeconds.value += 1
+            }
+        }
+
+        // Register Utterance & Speech callbacks for continuous call loop
+        voiceAssistant.onTtsDoneCallback = {
+            if (_isCallActive.value) {
+                if (_isCallMuted.value) {
+                    _voiceCallState.value = VoiceCallState.MUTED
+                } else {
+                    listenForCallTurn()
+                }
+            }
+        }
+
+        voiceAssistant.onSpeechErrorCallback = { _, _ ->
+            if (_isCallActive.value && !_isCallMuted.value) {
+                // If speech recognition timed out or found no speech, re-arm listening smoothly
+                viewModelScope.launch {
+                    delay(700)
+                    if (_isCallActive.value && !_isCallMuted.value && _voiceCallState.value == VoiceCallState.LISTENING) {
+                        listenForCallTurn()
+                    }
+                }
+            }
+        }
+
+        // Initial Greeting from AI
+        viewModelScope.launch {
+            delay(500)
+            if (!_isCallActive.value) return@launch
+            val greeting = "আসসালামু আলাইকুম! আমি আপনার পোশাক ও গার্মেন্টস ব্যবসার এআই সহকারী। বলুন, আজ কীভাবে সাহায্য করতে পারি?"
+            _callAiSpeech.value = greeting
+            _callTranscript.value = listOf("AI" to greeting)
+            _voiceCallState.value = VoiceCallState.SPEAKING
+            voiceAssistant.speak(greeting)
+        }
+    }
+
+    private fun listenForCallTurn() {
+        if (!_isCallActive.value || _isCallMuted.value) return
+        _voiceCallState.value = VoiceCallState.LISTENING
+        voiceAssistant.startListening { recognizedText ->
+            if (!_isCallActive.value) return@startListening
+            val speech = recognizedText.trim()
+            if (speech.isNotBlank()) {
+                _callUserSpeech.value = speech
+                _callTranscript.value = _callTranscript.value + ("User" to speech)
+                processCallUserSpeech(speech)
+            } else {
+                if (_isCallActive.value && !_isCallMuted.value) {
+                    listenForCallTurn()
+                }
+            }
+        }
+    }
+
+    private fun processCallUserSpeech(userSpeech: String) {
+        if (!_isCallActive.value) return
+        _voiceCallState.value = VoiceCallState.THINKING
+
+        viewModelScope.launch {
+            try {
+                val currentHistory = chatMessages.value
+                val (activeSessionId, aiReply) = repository.sendVoiceCallTurn(
+                    sessionId = _currentSessionId.value,
+                    persona = _selectedPersona.value,
+                    userSpeech = userSpeech,
+                    history = currentHistory
+                )
+                if (_currentSessionId.value == null) {
+                    _currentSessionId.value = activeSessionId
+                }
+
+                if (!_isCallActive.value) return@launch
+
+                _callAiSpeech.value = aiReply
+                _callTranscript.value = _callTranscript.value + ("AI" to aiReply)
+                _voiceCallState.value = VoiceCallState.SPEAKING
+                voiceAssistant.speak(aiReply)
+            } catch (e: Exception) {
+                Log.e("AdvisorViewModel", "Failed voice call turn: ${e.message}", e)
+                if (_isCallActive.value) {
+                    val fallback = "দুঃখিত, সংযোগে কিছুটা বিঘ্ন ঘটেছে। আপনার কথাটি আবার বলবেন?"
+                    _callAiSpeech.value = fallback
+                    _voiceCallState.value = VoiceCallState.SPEAKING
+                    voiceAssistant.speak(fallback)
+                }
+            }
+        }
+    }
+
+    fun interruptAiAndSpeak() {
+        if (!_isCallActive.value) return
+        voiceAssistant.stopSpeaking()
+        if (_isCallMuted.value) {
+            _isCallMuted.value = false
+        }
+        listenForCallTurn()
+    }
+
+    fun toggleCallMute() {
+        if (!_isCallActive.value) return
+        val nextMuted = !_isCallMuted.value
+        _isCallMuted.value = nextMuted
+        if (nextMuted) {
+            voiceAssistant.stopListening()
+            _voiceCallState.value = VoiceCallState.MUTED
+        } else {
+            if (_voiceCallState.value == VoiceCallState.MUTED) {
+                listenForCallTurn()
+            }
+        }
+    }
+
+    fun toggleCallSpeaker() {
+        voiceAssistant.toggleSpeaker()
+    }
+
+    fun endVoiceCall() {
+        _isCallActive.value = false
+        _voiceCallState.value = VoiceCallState.IDLE
+        callTimerJob?.cancel()
+        callTimerJob = null
+        voiceAssistant.stopSpeaking()
+        voiceAssistant.stopListening()
+        voiceAssistant.onTtsDoneCallback = null
+        voiceAssistant.onSpeechErrorCallback = null
+    }
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -268,7 +504,37 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // --- Monthly Finances (Sale, Expense, DEBT Pay, Product Buy) ---
+    // --- Monthly Finances (Sale, Expense, DEBT Pay, Product Buy) & Calendar Filtering ---
+    private val currentDefaultMonthYear = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(Date())
+    private val _selectedMonthYear = MutableStateFlow(currentDefaultMonthYear)
+    val selectedMonthYear: StateFlow<String> = _selectedMonthYear.asStateFlow()
+
+    fun selectMonthYear(monthYear: String) {
+        _selectedMonthYear.value = monthYear
+    }
+
+    fun selectPreviousMonth() {
+        _selectedMonthYear.value = shiftMonth(_selectedMonthYear.value, -1)
+    }
+
+    fun selectNextMonth() {
+        _selectedMonthYear.value = shiftMonth(_selectedMonthYear.value, 1)
+    }
+
+    private fun shiftMonth(current: String, delta: Int): String {
+        return try {
+            val sdf = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH)
+            val date = sdf.parse(current) ?: Date()
+            val cal = Calendar.getInstance().apply {
+                time = date
+                add(Calendar.MONTH, delta)
+            }
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            current
+        }
+    }
+
     val allFinances: StateFlow<List<MonthlyFinanceEntity>> = repository.getAllFinances()
         .stateIn(
             scope = viewModelScope,
@@ -276,19 +542,39 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             initialValue = emptyList()
         )
 
-    val monthlySales: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+    val filteredFinances: StateFlow<List<MonthlyFinanceEntity>> = combine(allFinances, _selectedMonthYear) { list, selectedMonth ->
+        if (selectedMonth == "ALL" || selectedMonth == "সকল মাস") {
+            list
+        } else {
+            val sdf = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH)
+            list.filter { item ->
+                if (item.monthYear.isNotBlank()) {
+                    item.monthYear.equals(selectedMonth, ignoreCase = true)
+                } else {
+                    try {
+                        val itemDateMonth = sdf.format(Date(item.timestamp))
+                        itemDateMonth.equals(selectedMonth, ignoreCase = true)
+                    } catch (e: Exception) {
+                        false
+                    }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlySales: StateFlow<List<MonthlyFinanceEntity>> = filteredFinances.map { list ->
         list.filter { it.type == "SALE" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val monthlyExpenses: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+    val monthlyExpenses: StateFlow<List<MonthlyFinanceEntity>> = filteredFinances.map { list ->
         list.filter { it.type == "EXPENSE" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val monthlyDebtPays: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+    val monthlyDebtPays: StateFlow<List<MonthlyFinanceEntity>> = filteredFinances.map { list ->
         list.filter { it.type == "DEBT_PAY" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val monthlyProductBuys: StateFlow<List<MonthlyFinanceEntity>> = allFinances.map { list ->
+    val monthlyProductBuys: StateFlow<List<MonthlyFinanceEntity>> = filteredFinances.map { list ->
         list.filter { it.type == "PRODUCT_BUY" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -308,7 +594,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         list.sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val netBalance: StateFlow<Double> = allFinances.map { list ->
+    val netBalance: StateFlow<Double> = filteredFinances.map { list ->
         val sale = list.filter { it.type == "SALE" }.sumOf { it.amount }
         val exp = list.filter { it.type == "EXPENSE" }.sumOf { it.amount }
         val debt = list.filter { it.type == "DEBT_PAY" }.sumOf { it.amount }
@@ -322,9 +608,12 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         amount: Double,
         category: String = "",
         note: String = "",
-        monthYear: String = "September 2026",
+        monthYear: String? = null,
         onComplete: ((Long) -> Unit)? = null
     ) {
+        val effectiveMonthYear = monthYear?.ifBlank { null } ?: _selectedMonthYear.value.let {
+            if (it == "ALL" || it == "সকল মাস") SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(Date()) else it
+        }
         viewModelScope.launch {
             val entity = MonthlyFinanceEntity(
                 type = type,
@@ -339,7 +628,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
                 },
                 amount = amount,
                 category = category,
-                monthYear = monthYear,
+                monthYear = effectiveMonthYear,
                 note = note
             )
             val id = repository.saveFinance(entity)
@@ -366,9 +655,10 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         val debtList = monthlyDebtPays.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
         val buyList = monthlyProductBuys.value.take(3).joinToString { "${it.title}: ৳${it.amount.toInt()}" }
 
+        val currentMonthName = _selectedMonthYear.value
         val prompt = when (analysisType) {
             "EXPENSE_REDUCE" -> """
-                আমার এই মাসের খরচের বিশদ হিসাব:
+                আমার $currentMonthName মাসের খরচের বিশদ হিসাব:
                 - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
                 - মোট খরচ (Monthly Expense): ৳${expense.toInt()} ${if (expensesList.isNotBlank()) "($expensesList)" else ""}
                 - পণ্যের ক্রয় (Product Buy): ৳${buy.toInt()}
@@ -378,7 +668,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             """.trimIndent()
 
             "DEBT_STRATEGY" -> """
-                আমার এই মাসের দেনা ও ঋণ পরিশোধের চিত্র:
+                আমার $currentMonthName মাসের দেনা ও ঋণ পরিশোধের চিত্র:
                 - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
                 - এই মাসে ঋণ পরিশোধ (Monthly DEBT Pay): ৳${debt.toInt()} ${if (debtList.isNotBlank()) "($debtList)" else ""}
                 - বর্তমান ক্যাশ ব্যালেন্স: ৳${net.toInt()}
@@ -387,7 +677,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             """.trimIndent()
 
             "PRODUCT_BUY_STRATEGY" -> """
-                আমার এই মাসের পণ্য ক্রয় ও ইনভেন্টরির হিসাব:
+                আমার $currentMonthName মাসের পণ্য ক্রয় ও ইনভেন্টরির হিসাব:
                 - মোট বিক্রি (Monthly Sale): ৳${sale.toInt()}
                 - পণ্য ক্রয় (Product Buy): ৳${buy.toInt()} ${if (buyList.isNotBlank()) "($buyList)" else ""}
                 - বর্তমান নিট ক্যাশ: ৳${net.toInt()}
@@ -396,7 +686,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             """.trimIndent()
 
             else -> """
-                আমার পোশাক/ব্যবসার এই মাসের সার্বিক আর্থিক প্রতিবেদন নিম্নরূপ:
+                আমার পোশাক/ব্যবসার $currentMonthName মাসের সার্বিক আর্থিক প্রতিবেদন নিম্নরূপ:
                 1. 💰 মাসিক বিক্রি (Monthly Sale): ৳${sale.toInt()} ${if (salesList.isNotBlank()) "[$salesList]" else ""}
                 2. 📉 মাসিক খরচ (Monthly Expense): ৳${expense.toInt()} ${if (expensesList.isNotBlank()) "[$expensesList]" else ""}
                 3. 💳 ঋণ পরিশোধ (Monthly DEBT Pay): ৳${debt.toInt()} ${if (debtList.isNotBlank()) "[$debtList]" else ""}
@@ -563,7 +853,11 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         _selectedAspectRatio.value = ratio
     }
 
-    fun sendChatMessage(prompt: String? = null, forceImageMode: Boolean? = null) {
+    fun sendChatMessage(
+        prompt: String? = null,
+        forceImageMode: Boolean? = null,
+        isVoiceQuery: Boolean = false
+    ) {
         val media = _attachedMedia.value
         val textToSend = (prompt ?: _chatInput.value).trim()
         if ((textToSend.isBlank() && media == null) || _isChatLoading.value) return
@@ -579,7 +873,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             _isChatLoading.value = true
             try {
                 val currentHistory = chatMessages.value
-                val (createdOrActiveId, _) = repository.sendChatMessage(
+                val (createdOrActiveId, modelResponseText) = repository.sendChatMessage(
                     sessionId = _currentSessionId.value,
                     persona = _selectedPersona.value,
                     userPrompt = textToSend,
@@ -594,6 +888,14 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
                 if (_currentSessionId.value == null) {
                     _currentSessionId.value = createdOrActiveId
                 }
+
+                // If user asked with voice or auto voice reply is turned on, speak the answer
+                if ((isVoiceQuery || _autoVoiceReply.value) && modelResponseText.isNotBlank()) {
+                    kotlinx.coroutines.delay(250)
+                    voiceAssistant.speak(modelResponseText, System.currentTimeMillis())
+                }
+            } catch (e: Exception) {
+                Log.e("AdvisorViewModel", "Failed to send chat message: ${e.message}", e)
             } finally {
                 _isChatLoading.value = false
             }
@@ -918,4 +1220,10 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             proTip = "Specify taped sealed seams if marketing as fully waterproof."
         )
     )
+
+    override fun onCleared() {
+        super.onCleared()
+        endVoiceCall()
+        voiceAssistant.shutdown()
+    }
 }

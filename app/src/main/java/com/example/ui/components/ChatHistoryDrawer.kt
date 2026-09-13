@@ -332,25 +332,6 @@ fun ChatHistoryDrawerContent(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Pollinations API Key Bar (Image Generation) - directly below Gemini API Key Bar
-            PollinationsApiKeyBar(
-                apiKeyStatus = pollinationsApiKeyStatus,
-                customApiKey = customPollinationsApiKey,
-                isApiKeyTesting = isPollinationsTesting,
-                onSaveApiKey = onSavePollinationsApiKey,
-                onClearApiKey = onClearPollinationsApiKey,
-                onTestApiKey = onTestPollinationsApiKey,
-                onQuickPromptSelected = { prompt ->
-                    onCloseDrawer()
-                    onQuickImagePrompt?.invoke(prompt)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
             // Search Bar
             if (sessions.isNotEmpty()) {
                 OutlinedTextField(

@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +16,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,6 +50,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -54,17 +62,24 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -107,6 +122,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -121,6 +137,7 @@ import coil.request.ImageRequest
 import com.example.data.db.ChatMessageEntity
 import com.example.data.repository.AdvisorPersona
 import com.example.ui.viewmodel.AdvisorViewModel
+import com.example.ui.viewmodel.VoiceCallState
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -139,9 +156,27 @@ fun AdvisorChatScreen(
     val isChatLoading by viewModel.isChatLoading.collectAsStateWithLifecycle()
     val chatInput by viewModel.chatInput.collectAsStateWithLifecycle()
     val allSessions by viewModel.allSessions.collectAsStateWithLifecycle()
-    val isImageMode by viewModel.isImageMode.collectAsStateWithLifecycle()
-    val selectedAspectRatio by viewModel.selectedAspectRatio.collectAsStateWithLifecycle()
     val attachedMedia by viewModel.attachedMedia.collectAsStateWithLifecycle()
+
+    val isListening by viewModel.isListening.collectAsStateWithLifecycle()
+    val speechPartialText by viewModel.speechPartialText.collectAsStateWithLifecycle()
+    val speechRmsDb by viewModel.speechRmsDb.collectAsStateWithLifecycle()
+    val speechError by viewModel.speechError.collectAsStateWithLifecycle()
+    val isSpeaking by viewModel.isSpeaking.collectAsStateWithLifecycle()
+    val currentSpeakingMessageId by viewModel.currentSpeakingMessageId.collectAsStateWithLifecycle()
+    val autoVoiceReply by viewModel.autoVoiceReply.collectAsStateWithLifecycle()
+
+    // 1v1 AI Voice Call States
+    val isCallActive by viewModel.isCallActive.collectAsStateWithLifecycle()
+    val callDurationSeconds by viewModel.callDurationSeconds.collectAsStateWithLifecycle()
+    val voiceCallState by viewModel.voiceCallState.collectAsStateWithLifecycle()
+    var showCallScreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isCallActive) {
+        if (isCallActive) {
+            showCallScreen = true
+        }
+    }
 
     val listState = rememberLazyListState()
     var showClearDialog by remember { mutableStateOf(false) }
@@ -150,6 +185,50 @@ fun AdvisorChatScreen(
     var viewingImagePrompt by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+
+    val callAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            viewModel.startVoiceCall()
+            showCallScreen = true
+        } else {
+            Toast.makeText(context, "১:১ ভয়েস কলের জন্য মাইক্রোফোন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onStartVoiceCallClicked = {
+        val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+        if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+            viewModel.startVoiceCall()
+            showCallScreen = true
+        } else {
+            callAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            viewModel.startVoiceInput()
+        } else {
+            Toast.makeText(context, "ভয়েস অপশন ব্যবহারের জন্য মাইক্রোফোন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onVoiceMicClicked = {
+        val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+        if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+            if (isListening) {
+                viewModel.stopVoiceInput()
+            } else {
+                viewModel.startVoiceInput()
+            }
+        } else {
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -248,19 +327,74 @@ fun AdvisorChatScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = if (isImageMode) "Mode:" else "AI Mode:",
+                            text = "AI Mode:",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isImageMode) "🎨 Image Generator (Gemini & Pollinations AI)" else selectedPersona.title,
+                            text = selectedPersona.title,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 1v1 Real-Time AI Voice Call Button
+                        FilledTonalButton(
+                            onClick = {
+                                if (isCallActive) {
+                                    showCallScreen = true
+                                } else {
+                                    onStartVoiceCallClicked()
+                                }
+                            },
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = if (isCallActive) Color(0xFF059669) else MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = if (isCallActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .testTag("top_bar_voice_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "১:১ ভয়েস কল",
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isCallActive) "কল চলছে" else "১:১ কল",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Auto Voice Reply Toggle Button
+                        IconButton(
+                            onClick = {
+                                val nextState = !autoVoiceReply
+                                viewModel.toggleAutoVoiceReply(nextState)
+                                Toast.makeText(
+                                    context,
+                                    if (nextState) "AI ভয়েস উত্তর চালু" else "AI ভয়েস উত্তর বন্ধ",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("toggle_voice_reply_button")
+                        ) {
+                            Icon(
+                                imageVector = if (autoVoiceReply) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                contentDescription = if (autoVoiceReply) "Voice Reply Enabled" else "Voice Reply Muted",
+                                tint = if (autoVoiceReply) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
                         if (chatMessages.isNotEmpty()) {
                             IconButton(
                                 onClick = { showClearDialog = true },
@@ -281,46 +415,16 @@ fun AdvisorChatScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Horizontal Persona / Mode Chips & Image Mode Chip
+                // Horizontal Persona Chips
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 2.dp)
                 ) {
-                    // Image Mode Chip
-                    item {
-                        FilterChip(
-                            selected = isImageMode,
-                            onClick = { viewModel.toggleImageMode() },
-                            label = {
-                                Text(
-                                    text = "🎨 Image Generator",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (isImageMode) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Image,
-                                    contentDescription = "Image Generation",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                                selectedLeadingIconColor = MaterialTheme.colorScheme.onTertiaryContainer
-                            ),
-                            modifier = Modifier.testTag("image_mode_toggle_chip")
-                        )
-                    }
-
                     items(AdvisorPersona.values()) { persona ->
-                        val isSelected = persona == selectedPersona && !isImageMode
+                        val isSelected = persona == selectedPersona
                         FilterChip(
                             selected = isSelected,
                             onClick = {
-                                if (isImageMode) viewModel.toggleImageMode(false)
                                 viewModel.selectPersona(persona)
                             },
                             label = {
@@ -353,6 +457,80 @@ fun AdvisorChatScreen(
                         )
                     }
                 }
+
+                // Floating Active Voice Call Banner if minimized
+                AnimatedVisibility(
+                    visible = isCallActive && !showCallScreen,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Surface(
+                        color = Color(0xFF0F172A),
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFF10B981)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .clickable { showCallScreen = true }
+                            .testTag("floating_call_status_bar")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color(0xFF10B981), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "১:১ এআই ভয়েস কল চালু আছে",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = when (voiceCallState) {
+                                            VoiceCallState.LISTENING -> "🎙️ কথা শুনছি..."
+                                            VoiceCallState.SPEAKING -> "🔊 এআই উত্তর দিচ্ছে..."
+                                            VoiceCallState.THINKING -> "⚡ এআই চিন্তা করছে..."
+                                            VoiceCallState.MUTED -> "🔇 মাইক মিউট করা"
+                                            else -> "ট্যাপ করে সরাসরি কল স্ক্রিনে ফিরুন"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF34D399)
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = String.format(Locale.US, "%02d:%02d", callDurationSeconds / 60, callDurationSeconds % 60),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = Color(0xFF60A5FA),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                IconButton(
+                                    onClick = { viewModel.endVoiceCall() },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CallEnd,
+                                        contentDescription = "কল শেষ করুন",
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -366,11 +544,11 @@ fun AdvisorChatScreen(
                 // Empty state greeting with topic suggestions & photo/video upload buttons
                 EmptyChatGreeting(
                     persona = selectedPersona,
-                    isImageMode = isImageMode,
                     historyCount = allSessions.size,
                     onOpenHistory = onOpenHistory,
                     onPromptClick = { prompt -> viewModel.sendChatMessage(prompt) },
-                    onActivateImageMode = { viewModel.toggleImageMode(true) },
+                    onVoiceClick = onVoiceMicClicked,
+                    onVoiceCallClick = onStartVoiceCallClicked,
                     onUploadPhotoClick = {
                         photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
@@ -405,7 +583,6 @@ fun AdvisorChatScreen(
                                 viewingImagePrompt = prompt
                             },
                             onEditPrompt = { promptToEdit ->
-                                viewModel.toggleImageMode(true)
                                 viewModel.onChatInputChange(promptToEdit)
                             },
                             onOpenHistory = onOpenHistory,
@@ -413,7 +590,10 @@ fun AdvisorChatScreen(
                                 priorUserMsg?.let { userMsg ->
                                     viewModel.retryMessage(userMsg.message, userMsg.isImagePrompt)
                                 }
-                            }
+                            },
+                            isSpeaking = isSpeaking && (currentSpeakingMessageId == msg.id),
+                            onSpeak = { viewModel.speakMessage(msg.id, msg.message) },
+                            onStopSpeak = { viewModel.stopSpeaking() }
                         )
                     }
 
@@ -421,7 +601,7 @@ fun AdvisorChatScreen(
                         item {
                             AdvisorTypingIndicator(
                                 persona = selectedPersona,
-                                isImageGenerating = isImageMode || chatInput.contains("image", ignoreCase = true)
+                                isImageGenerating = false
                             )
                         }
                     }
@@ -429,95 +609,8 @@ fun AdvisorChatScreen(
             }
         }
 
-        // Image Mode Settings Banner (Aspect Ratio & Quick Prompts)
-        AnimatedVisibility(visible = isImageMode) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "Aspect Ratio:",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val ratios = listOf(
-                                "1:1" to "Square (1:1)",
-                                "16:9" to "Wide (16:9)",
-                                "9:16" to "Story (9:16)",
-                                "4:3" to "Standard (4:3)"
-                            )
-                            ratios.forEach { (ratioKey, _) ->
-                                val isRatioSelected = selectedAspectRatio == ratioKey
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isRatioSelected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, if (isRatioSelected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { viewModel.setSelectedAspectRatio(ratioKey) }
-                                        .testTag("ratio_$ratioKey")
-                                ) {
-                                    Text(
-                                        text = ratioKey,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (isRatioSelected) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Quick image prompt suggestions
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 2.dp)
-                    ) {
-                        val imageSuggestions = listOf(
-                            "🏪 একটি আধুনিক বাংলাদেশের কাপড়ের দোকানের interior তৈরি করো",
-                            "📸 একটি realistic fashion product photo তৈরি করো",
-                            "👗 White background-এ একটি সম্পূর্ণ dress-এর product photography তৈরি করো",
-                            "✨ প্রিমিয়াম সিল্ক জামদানি শাড়ির স্টুডিও লুকবুক ফটো",
-                            "👔 হ্যান্ডলুম খাদি পাঞ্জাবির মিনিমালিস্ট ক্যাটালগ ফটো",
-                            "🧥 Oversized streetwear hoodie mockup with graffiti print"
-                        )
-                        items(imageSuggestions) { suggestion ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { 
-                                        val clean = suggestion.substringAfter(" ")
-                                        viewModel.sendChatMessage(clean, forceImageMode = true) 
-                                    }
-                            ) {
-                                Text(
-                                    text = suggestion,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Suggested Prompt Quick Row (if chat is active and not image mode and no media attached)
-        if (chatMessages.isNotEmpty() && !isChatLoading && !isImageMode && attachedMedia == null) {
+        // Suggested Prompt Quick Row (if chat is active and no media attached)
+        if (chatMessages.isNotEmpty() && !isChatLoading && attachedMedia == null) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -976,103 +1069,197 @@ fun AdvisorChatScreen(
             }
         }
 
-        // Chat Input Bar
+        // Chat Input Bar & Voice Controls
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                // Dedicated High-Visibility Add (+) Option Button on Left side of Text Bar
-                IconButton(
-                    onClick = { showMediaAttachMenu = true },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (attachedMedia != null) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.primaryContainer
-                            }
-                        )
-                        .testTag("add_option_button")
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // AI Speaking banner
+                AnimatedVisibility(
+                    visible = isSpeaking,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
                 ) {
-                    Icon(
-                        imageVector = if (attachedMedia != null) Icons.Default.Check else Icons.Default.Add,
-                        contentDescription = "Add Option",
-                        tint = if (attachedMedia != null) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        },
-                        modifier = Modifier.size(26.dp)
+                    VoiceSpeakingBanner(
+                        onStopSpeaking = { viewModel.stopSpeaking() }
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                OutlinedTextField(
-                    value = chatInput,
-                    onValueChange = { viewModel.onChatInputChange(it) },
-                    placeholder = {
-                        Text(
-                            text = if (attachedMedia != null) {
-                                "কাপড়ের বিস্তারিত লিখুন বা সরাসরি পাঠান..."
-                            } else if (isImageMode) {
-                                "টেক্সট প্রম্পট লিখুন (যেমন: White background-এ dress এর ছবি)..."
-                            } else {
-                                "কাপড়ের বিবরণ লিখুন বা '+' চেপে যুক্ত করুন..."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("chat_input_field"),
-                    shape = RoundedCornerShape(24.dp),
-                    maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                FloatingActionButton(
-                    onClick = { viewModel.sendChatMessage() },
-                    shape = CircleShape,
-                    containerColor = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                    contentColor = if (isImageMode) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("send_chat_button")
+                // Voice Listening waveform & live preview card
+                AnimatedVisibility(
+                    visible = isListening,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
                 ) {
-                    if (isChatLoading) {
-                        CircularProgressIndicator(
-                            color = if (isImageMode) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    } else {
+                    VoiceListeningCard(
+                        partialText = speechPartialText,
+                        rmsDb = speechRmsDb,
+                        onStopAndSend = { viewModel.stopVoiceInput() },
+                        onCancel = { viewModel.cancelVoiceInput() }
+                    )
+                }
+
+                // Voice Error notice
+                if (speechError != null && !isListening) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = speechError ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    // Dedicated High-Visibility Add (+) Option Button on Left side of Text Bar
+                    IconButton(
+                        onClick = { showMediaAttachMenu = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (attachedMedia != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                }
+                            )
+                            .testTag("add_option_button")
+                    ) {
                         Icon(
-                            imageVector = if (isImageMode) Icons.Default.AutoAwesome else Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send Message",
-                            modifier = Modifier.size(20.dp)
+                            imageVector = if (attachedMedia != null) Icons.Default.Check else Icons.Default.Add,
+                            contentDescription = "Add Option",
+                            tint = if (attachedMedia != null) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            },
+                            modifier = Modifier.size(26.dp)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    OutlinedTextField(
+                        value = chatInput,
+                        onValueChange = { viewModel.onChatInputChange(it) },
+                        placeholder = {
+                            Text(
+                                text = if (attachedMedia != null) {
+                                    "কাপড়ের বিস্তারিত লিখুন বা সরাসরি পাঠান..."
+                                } else {
+                                    "লিখুন বা মাইকে কথা বলুন..."
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chat_input_field"),
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Dedicated Microphone Voice Button
+                    IconButton(
+                        onClick = onVoiceMicClicked,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isListening) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.secondaryContainer
+                            )
+                            .testTag("voice_mic_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = if (isListening) "Stop Voice Listening" else "Voice Input",
+                            tint = if (isListening) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    FloatingActionButton(
+                        onClick = { viewModel.sendChatMessage() },
+                        shape = CircleShape,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .testTag("send_chat_button")
+                    ) {
+                        if (isChatLoading) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send Message",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+
+    // --- 1v1 Real-Time AI Voice Call Fullscreen Overlay ---
+    if (showCallScreen && isCallActive) {
+        Dialog(
+            onDismissRequest = { showCallScreen = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true
+            )
+        ) {
+            VoiceCallScreen(
+                viewModel = viewModel,
+                onCloseScreen = { showCallScreen = false },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
@@ -1080,11 +1267,11 @@ fun AdvisorChatScreen(
 @Composable
 fun EmptyChatGreeting(
     persona: AdvisorPersona,
-    isImageMode: Boolean = false,
     historyCount: Int = 0,
     onOpenHistory: () -> Unit = {},
     onPromptClick: (String) -> Unit,
-    onActivateImageMode: () -> Unit = {},
+    onVoiceClick: () -> Unit = {},
+    onVoiceCallClick: () -> Unit = {},
     onUploadPhotoClick: () -> Unit = {},
     onUploadVideoClick: () -> Unit = {},
     onBrowseFilesClick: () -> Unit = {}
@@ -1103,26 +1290,19 @@ fun EmptyChatGreeting(
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
-                            colors = if (isImageMode) {
-                                listOf(
-                                    MaterialTheme.colorScheme.tertiaryContainer,
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            } else {
-                                listOf(
-                                    MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            }
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                MaterialTheme.colorScheme.surfaceVariant
+                            )
                         )
                     )
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isImageMode) Icons.Default.Image else Icons.Default.AutoAwesome,
+                    imageVector = Icons.Default.AutoAwesome,
                     contentDescription = null,
-                    tint = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -1130,7 +1310,7 @@ fun EmptyChatGreeting(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (isImageMode) "🎨 AI Image Generator" else "Cloth & Fashion Store Assistant",
+                text = "Cloth & Fashion Store Assistant",
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -1138,18 +1318,103 @@ fun EmptyChatGreeting(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = if (isImageMode) "Gemini 2.5 Flash Image দিয়ে যে কোনো পোশাকের ছবি, মডেল লুকবুক ও স্টুডিও ফটোগ্রাফি তৈরি করুন" else "পোশাকের ছবি বা ভিডিও আপলোড করুন এবং ফ্যাব্রিক, প্রাইসিং ও মার্কেটিং বিশ্লেষণ পান",
+                text = "পোশাকের ছবি বা ভিডিও আপলোড করুন এবং ফ্যাব্রিক, প্রাইসিং ও মার্কেটিং বিশ্লেষণ পান",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Action Buttons: Upload Photo / Video / Browse Files
+            // 1v1 Real-Time Voice Call Hero Card
+            Surface(
+                onClick = onVoiceCallClick,
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.5.dp, Color(0xFF10B981).copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .testTag("empty_greeting_1v1_call_card")
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(listOf(Color(0xFF059669), Color(0xFF10B981)))
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "১:১ কল",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "১:১ সরাসরি AI ভয়েস কল",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF10B981)
+                            ) {
+                                Text(
+                                    text = "LIVE CALL",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.ExtraBold),
+                                    color = Color.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "টাইপ না করে সরাসরি রিয়েল-টাইমে কথা বলুন ও সমাধান নিন",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Action Buttons: Upload Photo / Video / Browse Files / Voice
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(horizontal = 4.dp)
             ) {
+                FilledTonalButton(
+                    onClick = onVoiceClick,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    modifier = Modifier.testTag("voice_greeting_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "মুখে বলুন",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
                 FilledTonalButton(
                     onClick = onUploadPhotoClick,
                     shape = RoundedCornerShape(12.dp),
@@ -1193,26 +1458,6 @@ fun EmptyChatGreeting(
                 }
             }
 
-            if (!isImageMode) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onActivateImageMode,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.testTag("switch_to_image_mode_banner_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "AI দিয়ে পোশাক ডিজাইন করুন (Generate Design)",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-            }
-
             if (historyCount > 0) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
@@ -1247,34 +1492,23 @@ fun EmptyChatGreeting(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = if (isImageMode) "Popular Visual Prompts:" else "জনপ্রিয় প্রশ্ন ও কমান্ড:",
+                text = "জনপ্রিয় প্রশ্ন ও কমান্ড:",
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        val promptsToShow = if (isImageMode) {
-            listOf(
-                "🏪 একটি আধুনিক বাংলাদেশের কাপড়ের দোকানের interior তৈরি করো",
-                "📸 একটি realistic fashion product photo তৈরি করো",
-                "👗 White background-এ একটি সম্পূর্ণ dress-এর product photography তৈরি করো",
-                "✨ প্রিমিয়াম সিল্ক জামদানি শাড়ির স্টুডিও লুকবুক ফটো",
-                "👔 হ্যান্ডলুম খাদি পাঞ্জাবির মিনিমালিস্ট ক্যাটালগ ফটো",
-                "🧥 Oversized streetwear hoodie mockup with futuristic cyberpunk print"
-            )
-        } else {
-            listOf(
-                "📊 আমার দোকানের মোট বিক্রির হিসাব ও লাভ দেখাও",
-                "☁️ ক্লাউডে সংরক্ষিত বিক্রির ডাটা ও কাস্টমার বাকি পর্যালোচনা করো",
-                "💵 এই মাসের মোট বিক্রি, খরচ এবং নিট ব্যালেন্স কত?",
-                "👕 এই কাপড়ের কোয়ালিটি ও দাম কত রাখা উচিত?",
-                "👗 ফেসবুক পেইজে পোশাক বিক্রির আকর্ষণীয় ক্যাপশন লেখো",
-                "🧵 কাপড়ের জিএসএম (GSM) এবং ফ্যাব্রিক টাইপ বোঝার নিয়ম কি?",
-                "📈 কাপড়ের দোকানের জন্য কার্যকরী সোশ্যাল মিডিয়া মার্কেটিং প্ল্যান"
-            )
-        }
+        val promptsToShow = listOf(
+            "📊 আমার দোকানের মোট বিক্রির হিসাব ও লাভ দেখাও",
+            "☁️ ক্লাউডে সংরক্ষিত বিক্রির ডাটা ও কাস্টমার বাকি পর্যালোচনা করো",
+            "💵 এই মাসের মোট বিক্রি, খরচ এবং নিট ব্যালেন্স কত?",
+            "👕 এই কাপড়ের কোয়ালিটি ও দাম কত রাখা উচিত?",
+            "👗 ফেসবুক পেইজে পোশাক বিক্রির আকর্ষণীয় ক্যাপশন লেখো",
+            "🧵 কাপড়ের জিএসএম (GSM) এবং ফ্যাব্রিক টাইপ বোঝার নিয়ম কি?",
+            "📈 কাপড়ের দোকানের জন্য কার্যকরী সোশ্যাল মিডিয়া মার্কেটিং প্ল্যান"
+        )
 
         items(promptsToShow) { prompt ->
             Surface(
@@ -1286,8 +1520,7 @@ fun EmptyChatGreeting(
                     .padding(vertical = 4.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .clickable { 
-                        val clean = if (isImageMode) prompt.substringAfter(" ") else prompt
-                        onPromptClick(clean) 
+                        onPromptClick(prompt) 
                     }
             ) {
                 Row(
@@ -1295,9 +1528,9 @@ fun EmptyChatGreeting(
                     modifier = Modifier.padding(14.dp)
                 ) {
                     Icon(
-                        imageVector = if (isImageMode) Icons.Default.Image else Icons.Default.Lightbulb,
+                        imageVector = Icons.Default.Lightbulb,
                         contentDescription = null,
-                        tint = if (isImageMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -1323,7 +1556,10 @@ fun ChatMessageBubble(
     onImageClick: (String, String) -> Unit = { _, _ -> },
     onEditPrompt: (String) -> Unit = {},
     onOpenHistory: () -> Unit = {},
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    isSpeaking: Boolean = false,
+    onSpeak: () -> Unit = {},
+    onStopSpeak: () -> Unit = {}
 ) {
     val isUser = message.role == "user"
     val timeFormatted = remember(message.timestamp) {
@@ -1356,7 +1592,10 @@ fun ChatMessageBubble(
             onImageClick = { url -> onImageClick(url, message.message) },
             onEditPrompt = onEditPrompt,
             onOpenHistory = onOpenHistory,
-            onRetry = onRetry
+            onRetry = onRetry,
+            isSpeaking = isSpeaking,
+            onSpeak = onSpeak,
+            onStopSpeak = onStopSpeak
         )
     }
 }
@@ -1579,6 +1818,9 @@ fun AdvisorMessageBubble(
     onEditPrompt: (String) -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onRetry: () -> Unit = {},
+    isSpeaking: Boolean = false,
+    onSpeak: () -> Unit = {},
+    onStopSpeak: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var copiedState by remember { mutableStateOf(false) }
@@ -1691,9 +1933,54 @@ fun AdvisorMessageBubble(
                                 ),
                                 color = if (imageUrl != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                             )
+
+                            if (isSpeaking) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "বলছে...",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Listen / Stop Speaker Button
+                            IconButton(
+                                onClick = {
+                                    if (isSpeaking) onStopSpeak() else onSpeak()
+                                },
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .testTag("speak_message_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+                                    contentDescription = if (isSpeaking) "Stop Voice" else "Listen Voice",
+                                    tint = if (isSpeaking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(2.dp))
+
                             IconButton(
                                 onClick = {
                                     onCopy()
@@ -2354,6 +2641,237 @@ fun AdvisorTypingIndicator(
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Animated Listening Waveform & Preview Card for Speech-To-Text
+ */
+@Composable
+fun VoiceListeningCard(
+    partialText: String,
+    rmsDb: Float,
+    onStopAndSend: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "voice_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(550, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+        tonalElevation = 8.dp,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .scale(pulseScale)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.error),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onError,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "🎙️ আপনার কথা শুনছি...",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = "স্পষ্ট করে বাংলায় বা ইংরেজিতে বলুন",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel Voice",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Recognized text live preview
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (partialText.isNotBlank()) {
+                        Text(
+                            text = "\"$partialText\"",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Text(
+                            text = "মুখে বলুন, যেমন: \"আজকের মোট বিক্রি কত?\" বা \"জর্জেট কাপড়ের দাম কেমন?\"...",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("বাতিল")
+                }
+
+                Button(
+                    onClick = onStopAndSend,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(1.5f)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("পাঠান ও শুনুন", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Animated Banner when AI is Speaking
+ */
+@Composable
+fun VoiceSpeakingBanner(
+    onStopSpeaking: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "speaking_wave")
+    val waveScale by infiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(450, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "wave_scale"
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)),
+        tonalElevation = 4.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .scale(waveScale)
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.tertiary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "🔊 AI উত্তর শোনাচ্ছে...",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Text(
+                        text = "কথা শেষ হলে বন্ধ হবে, বা সরাসরি থামাতে পারেন",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
+                    )
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onStopSpeaking,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("থামান", fontWeight = FontWeight.Bold)
             }
         }
     }

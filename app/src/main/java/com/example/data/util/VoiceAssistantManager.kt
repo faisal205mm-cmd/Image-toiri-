@@ -2,6 +2,8 @@ package com.example.data.util
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,16 +19,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
- * High-performance Voice Assistant Manager providing Speech-To-Text (STT)
- * and natural Bengali/English Text-To-Speech (TTS) for the Apparel Advisor.
+ * High-performance Voice Assistant Manager providing Speech-To-Text (STT),
+ * natural Bengali & English Text-To-Speech (TTS), audio sound effects,
+ * and conversational voice agent flow for the Apparel Advisor.
  */
 class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitListener {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Call Sound Effects for real live call feedback
+    val soundEffects = CallSoundEffects()
+
     // --- TTS States ---
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
+    private var isBengaliTtsAvailable = false
     private var pendingSpeechText: String? = null
     private var pendingSpeechMessageId: Long? = null
 
@@ -43,9 +50,14 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
     var onSpeechErrorCallback: ((Int, String) -> Unit)? = null
 
     // Audio routing (Speakerphone)
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val _isSpeakerOn = MutableStateFlow(true)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
+
+    // Watchdog timer to prevent TTS hanging permanently on speaking state
+    private var ttsWatchdogRunnable: Runnable? = null
+    // Waveform simulation during speaking so avatar dances to AI voice
+    private var speakWaveformRunnable: Runnable? = null
 
     fun toggleSpeaker(enable: Boolean? = null) {
         val next = enable ?: !_isSpeakerOn.value
@@ -54,6 +66,23 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
             audioManager?.isSpeakerphoneOn = next
         } catch (e: Exception) {
             Log.w("VoiceAssistantManager", "Failed to toggle speakerphone: ${e.message}")
+        }
+    }
+
+    /**
+     * Ensure audio volume is audible on speakerphone so user clearly hears the AI voice.
+     */
+    fun ensureAudioLoudspeaker() {
+        try {
+            audioManager?.mode = AudioManager.MODE_NORMAL
+            audioManager?.isSpeakerphoneOn = _isSpeakerOn.value
+            val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+            val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
+            if (curVol < (maxVol * 0.6f).toInt()) {
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, (maxVol * 0.8f).toInt(), 0)
+            }
+        } catch (e: Exception) {
+            Log.w("VoiceAssistantManager", "Failed to ensure loudspeaker: ${e.message}")
         }
     }
 
@@ -88,75 +117,179 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             textToSpeech?.let { tts ->
-                // Try setting Bengali (Bangladesh) first, then Bengali (India), fallback to default
-                val bnLocale = Locale("bn", "BD")
-                val langResult = tts.setLanguage(bnLocale)
-                if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    val bnGeneral = Locale("bn")
-                    val resGeneral = tts.setLanguage(bnGeneral)
-                    if (resGeneral == TextToSpeech.LANG_MISSING_DATA || resGeneral == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        // Fallback to default device locale
-                        tts.language = Locale.getDefault()
-                    }
-                }
+                try {
+                    // Check if Bengali voice package is available on device
+                    val bnBdAvailable = tts.isLanguageAvailable(Locale("bn", "BD"))
+                    val bnAvailable = tts.isLanguageAvailable(Locale("bn"))
+                    isBengaliTtsAvailable = bnBdAvailable >= TextToSpeech.LANG_AVAILABLE || bnAvailable >= TextToSpeech.LANG_AVAILABLE
 
-                tts.setPitch(1.02f)
-                tts.setSpeechRate(0.98f)
-
-                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        _isSpeaking.value = true
-                        mainHandler.post { onTtsStartCallback?.invoke() }
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        _isSpeaking.value = false
-                        _currentSpeakingMessageId.value = null
-                        mainHandler.post { onTtsDoneCallback?.invoke() }
+                    if (isBengaliTtsAvailable) {
+                        val setRes = tts.setLanguage(Locale("bn", "BD"))
+                        if (setRes < TextToSpeech.LANG_AVAILABLE) {
+                            tts.setLanguage(Locale("bn"))
+                        }
+                        // Try selecting best Bengali voice
+                        val bnVoice = tts.voices?.firstOrNull { it.locale.language == "bn" && !it.isNetworkConnectionRequired }
+                            ?: tts.voices?.firstOrNull { it.locale.language == "bn" }
+                        if (bnVoice != null) {
+                            tts.voice = bnVoice
+                        }
+                    } else {
+                        // Fallback to default/US locale for phonetic transliteration
+                        tts.language = Locale.US
                     }
 
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        _isSpeaking.value = false
-                        _currentSpeakingMessageId.value = null
-                        mainHandler.post { onTtsErrorCallback?.invoke() }
+                    // Natural voice agent pitch and speed
+                    tts.setPitch(1.0f)
+                    tts.setSpeechRate(1.0f)
+
+                    // Configure optimal audio attributes for speech
+                    val audioAttributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                    tts.setAudioAttributes(audioAttributes)
+
+                    tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            _isSpeaking.value = true
+                            startWaveformSimulation()
+                            mainHandler.post { onTtsStartCallback?.invoke() }
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            cancelTtsWatchdog()
+                            stopWaveformSimulation()
+                            _isSpeaking.value = false
+                            _currentSpeakingMessageId.value = null
+                            mainHandler.post { onTtsDoneCallback?.invoke() }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            cancelTtsWatchdog()
+                            stopWaveformSimulation()
+                            _isSpeaking.value = false
+                            _currentSpeakingMessageId.value = null
+                            mainHandler.post { onTtsErrorCallback?.invoke() }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            cancelTtsWatchdog()
+                            stopWaveformSimulation()
+                            _isSpeaking.value = false
+                            _currentSpeakingMessageId.value = null
+                            mainHandler.post { onTtsErrorCallback?.invoke() }
+                        }
+                    })
+
+                    isTtsInitialized = true
+                    Log.d("VoiceAssistantManager", "TTS ready. Bengali available: $isBengaliTtsAvailable, language: ${tts.language}")
+
+                    // Process any speech queued before init
+                    pendingSpeechText?.let { text ->
+                        val id = pendingSpeechMessageId
+                        pendingSpeechText = null
+                        pendingSpeechMessageId = null
+                        speak(text, id)
                     }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        _isSpeaking.value = false
-                        _currentSpeakingMessageId.value = null
-                        mainHandler.post { onTtsErrorCallback?.invoke() }
-                    }
-                })
-
-                isTtsInitialized = true
-                Log.d("VoiceAssistantManager", "TTS initialized successfully with language: ${tts.language}")
-
-                // If there was a pending speak request prior to initialization
-                pendingSpeechText?.let { text ->
-                    val id = pendingSpeechMessageId
-                    pendingSpeechText = null
-                    pendingSpeechMessageId = null
-                    speak(text, id)
+                } catch (e: Exception) {
+                    Log.e("VoiceAssistantManager", "Error setting up TTS parameters: ${e.message}")
+                    isTtsInitialized = true
                 }
             }
         } else {
             Log.e("VoiceAssistantManager", "TextToSpeech init failed with status: $status")
+            // Still mark initialized so we don't block callers permanently
+            isTtsInitialized = false
         }
     }
 
     /**
-     * Speak text aloud using TTS. Cleans markdown, hashtags, formatting and symbols
-     * for a clean, natural listening experience.
+     * Start watchdog timer to guarantee the conversation turn finishes
+     * even if the underlying TTS engine fails to call onDone.
+     */
+    private fun startTtsWatchdog(textLength: Int) {
+        cancelTtsWatchdog()
+        // Roughly ~85ms per character + 3s buffer
+        val timeoutMs = (textLength * 85L + 3000L).coerceIn(3500L, 35000L)
+        val runnable = Runnable {
+            if (_isSpeaking.value) {
+                Log.w("VoiceAssistantManager", "TTS watchdog triggered after $timeoutMs ms; recovering state.")
+                _isSpeaking.value = false
+                _currentSpeakingMessageId.value = null
+                stopWaveformSimulation()
+                onTtsDoneCallback?.invoke()
+            }
+        }
+        ttsWatchdogRunnable = runnable
+        mainHandler.postDelayed(runnable, timeoutMs)
+    }
+
+    private fun cancelTtsWatchdog() {
+        ttsWatchdogRunnable?.let { mainHandler.removeCallbacks(it) }
+        ttsWatchdogRunnable = null
+    }
+
+    /**
+     * Simulates dynamic RMS audio waves while Gemini speaks so the avatar
+     * visualizer pulsates naturally to the sound of the voice.
+     */
+    private fun startWaveformSimulation() {
+        stopWaveformSimulation()
+        var step = 0
+        val runnable = object : Runnable {
+            override fun run() {
+                if (_isSpeaking.value) {
+                    step = (step + 1) % 8
+                    val simulatedRms = when (step) {
+                        0 -> 3.2f
+                        1 -> 6.8f
+                        2 -> 8.5f
+                        3 -> 5.1f
+                        4 -> 7.4f
+                        5 -> 9.0f
+                        6 -> 4.5f
+                        else -> 2.0f
+                    }
+                    _speechRmsDb.value = simulatedRms
+                    mainHandler.postDelayed(this, 120)
+                } else {
+                    _speechRmsDb.value = 0f
+                }
+            }
+        }
+        speakWaveformRunnable = runnable
+        mainHandler.post(runnable)
+    }
+
+    private fun stopWaveformSimulation() {
+        speakWaveformRunnable?.let { mainHandler.removeCallbacks(it) }
+        speakWaveformRunnable = null
+        _speechRmsDb.value = 0f
+    }
+
+    /**
+     * Speak text aloud using TTS. Cleans formatting and applies phonetic transliteration
+     * if device lacks native Bengali speech packages, ensuring audible, loud voice output.
      */
     fun speak(text: String, messageId: Long? = null) {
         mainHandler.post {
             val cleaned = cleanTextForSpeech(text)
             if (cleaned.isBlank()) return@post
 
+            ensureAudioLoudspeaker()
+
             if (!isTtsInitialized || textToSpeech == null) {
                 pendingSpeechText = cleaned
                 pendingSpeechMessageId = messageId
+                // If TTS isn't ready after 2s, gracefully advance so user isn't stuck
+                mainHandler.postDelayed({
+                    if (!isTtsInitialized && _isSpeaking.value) {
+                        _isSpeaking.value = false
+                        onTtsDoneCallback?.invoke()
+                    }
+                }, 2000)
                 return@post
             }
 
@@ -165,17 +298,39 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
             _currentSpeakingMessageId.value = messageId
             _isSpeaking.value = true
 
-            // Split into safe chunks if text is exceptionally long
-            val maxChunkLength = 3500
-            if (cleaned.length <= maxChunkLength) {
-                val utteranceId = "utterance_${System.currentTimeMillis()}"
-                textToSpeech?.speak(cleaned, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            // Determine text for TTS engine:
+            // If device cannot speak native Bengali, transliterate to natural Romanized Bangla
+            // so standard Android TTS speaks it aloud clearly instead of remaining silent.
+            val speechOutput = if (!isBengaliTtsAvailable && BengaliPhoneticHelper.containsBengali(cleaned)) {
+                BengaliPhoneticHelper.toPhoneticBangla(cleaned)
             } else {
-                val chunks = cleaned.chunked(maxChunkLength)
+                cleaned
+            }
+
+            startTtsWatchdog(speechOutput.length)
+
+            val params = Bundle().apply {
+                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+            }
+
+            val maxChunkLength = 3500
+            if (speechOutput.length <= maxChunkLength) {
+                val utteranceId = "utterance_${System.currentTimeMillis()}"
+                val result = textToSpeech?.speak(speechOutput, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                if (result == TextToSpeech.ERROR) {
+                    Log.e("VoiceAssistantManager", "TTS speak returned ERROR immediately")
+                    cancelTtsWatchdog()
+                    _isSpeaking.value = false
+                    _currentSpeakingMessageId.value = null
+                    onTtsErrorCallback?.invoke()
+                }
+            } else {
+                val chunks = speechOutput.chunked(maxChunkLength)
                 chunks.forEachIndexed { index, chunk ->
                     val queueMode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
                     val utteranceId = "utterance_${System.currentTimeMillis()}_$index"
-                    textToSpeech?.speak(chunk, queueMode, null, utteranceId)
+                    textToSpeech?.speak(chunk, queueMode, params, utteranceId)
                 }
             }
         }
@@ -186,6 +341,8 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
      */
     fun stopSpeaking() {
         mainHandler.post {
+            cancelTtsWatchdog()
+            stopWaveformSimulation()
             try {
                 textToSpeech?.stop()
             } catch (e: Exception) {
@@ -244,6 +401,8 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
 
                     override fun onEndOfSpeech() {
                         _isListening.value = false
+                        // Audio acknowledgment beep when user finishes talking
+                        soundEffects.playSpeechRecognized()
                     }
 
                     override fun onError(error: Int) {
@@ -385,6 +544,10 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
      */
     fun shutdown() {
         mainHandler.post {
+            cancelTtsWatchdog()
+            stopWaveformSimulation()
+            soundEffects.release()
+
             try {
                 textToSpeech?.stop()
                 textToSpeech?.shutdown()
@@ -402,3 +565,4 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
         }
     }
 }
+

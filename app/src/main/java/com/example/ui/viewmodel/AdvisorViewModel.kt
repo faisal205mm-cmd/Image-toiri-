@@ -174,6 +174,9 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         _callTranscript.value = emptyList()
         _isCallMuted.value = false
 
+        // Play phone connection audio cue
+        voiceAssistant.soundEffects.playCallConnecting()
+
         // Start Call Duration Timer
         callTimerJob?.cancel()
         callTimerJob = viewModelScope.launch {
@@ -183,8 +186,19 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Register Utterance & Speech callbacks for continuous call loop
+        // Register Utterance & Speech callbacks for continuous conversational loop
         voiceAssistant.onTtsDoneCallback = {
+            if (_isCallActive.value) {
+                if (_isCallMuted.value) {
+                    _voiceCallState.value = VoiceCallState.MUTED
+                } else {
+                    listenForCallTurn()
+                }
+            }
+        }
+
+        // Watchdog & error recovery callback so call never hangs if speech synthesis fails
+        voiceAssistant.onTtsErrorCallback = {
             if (_isCallActive.value) {
                 if (_isCallMuted.value) {
                     _voiceCallState.value = VoiceCallState.MUTED
@@ -198,7 +212,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             if (_isCallActive.value && !_isCallMuted.value) {
                 // If speech recognition timed out or found no speech, re-arm listening smoothly
                 viewModelScope.launch {
-                    delay(700)
+                    delay(600)
                     if (_isCallActive.value && !_isCallMuted.value && _voiceCallState.value == VoiceCallState.LISTENING) {
                         listenForCallTurn()
                     }
@@ -206,11 +220,21 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Initial Greeting from AI
+        // Initial Greeting from AI Voice Agent based on active persona
         viewModelScope.launch {
-            delay(500)
+            delay(400)
             if (!_isCallActive.value) return@launch
-            val greeting = "আসসালামু আলাইকুম! আমি আপনার পোশাক ও গার্মেন্টস ব্যবসার এআই সহকারী। বলুন, আজ কীভাবে সাহায্য করতে পারি?"
+
+            // Connected chime
+            voiceAssistant.soundEffects.playCallConnected()
+
+            val greeting = when (_selectedPersona.value) {
+                AdvisorPersona.GENERAL -> "আসসালামু আলাইকুম! আমি আপনার গার্মেন্টস ব্যবসার এআই ভয়েস এজেন্ট। বলুন, কীভাবে সাহায্য করতে পারি?"
+                AdvisorPersona.CREATIVE -> "হ্যালো! আমি আপনার ক্রিয়েটিভ এআই সহকারী। আজ কী ডিজাইন বা আইডিয়া নিয়ে কথা বলবেন?"
+                AdvisorPersona.CODING -> "হ্যালো! আমি আপনার টেক ও কোডিং সহকারী। বলুন, কী বিষয়ে জানতে চান?"
+                AdvisorPersona.LEARNING -> "হ্যালো! আমি আপনার লার্নিং টিউটর। আজ কী নিয়ে শিখতে চান বলুন?"
+            }
+
             _callAiSpeech.value = greeting
             _callTranscript.value = listOf("AI" to greeting)
             _voiceCallState.value = VoiceCallState.SPEAKING
@@ -303,9 +327,11 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         _voiceCallState.value = VoiceCallState.IDLE
         callTimerJob?.cancel()
         callTimerJob = null
+        voiceAssistant.soundEffects.playCallEnded()
         voiceAssistant.stopSpeaking()
         voiceAssistant.stopListening()
         voiceAssistant.onTtsDoneCallback = null
+        voiceAssistant.onTtsErrorCallback = null
         voiceAssistant.onSpeechErrorCallback = null
     }
 

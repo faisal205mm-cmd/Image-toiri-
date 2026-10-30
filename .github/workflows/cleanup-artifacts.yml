@@ -1,0 +1,133 @@
+name: Cleanup Old Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete_all_previous:
+        description: 'Delete all previous artifacts'
+        required: true
+        type: boolean
+        default: true
+      keep_minimum_runs:
+        description: 'Number of latest workflow runs to protect (0 = delete all previous artifacts)'
+        required: false
+        type: number
+        default: 0
+      dry_run:
+        description: 'Dry run (only show artifacts to be deleted without removing them)'
+        required: false
+        type: boolean
+        default: false
+  # Runs automatically every Sunday at midnight UTC to prevent artifact storage buildup
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  cleanup-artifacts:
+    name: Delete Old Workflow Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Purge Previous Artifacts Safely
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const keepLatest = parseInt("${{ github.event.inputs.keep_minimum_runs || '0' }}", 10);
+            const isDryRun = "${{ github.event.inputs.dry_run || 'false' }}" === "true";
+            const currentRunId = context.runId;
+
+            console.log(`Starting artifact cleanup for repository: ${owner}/${repo}`);
+            console.log(`Protection settings: Current Run ID: ${currentRunId}, Keep Latest Runs: ${keepLatest}, Dry Run: ${isDryRun}`);
+
+            // 1. Identify protected run IDs if keepLatest > 0
+            const protectedRunIds = new Set([currentRunId]);
+            if (keepLatest > 0) {
+              try {
+                const runsResponse = await github.rest.actions.listWorkflowRunsForRepo({
+                  owner,
+                  repo,
+                  per_page: Math.max(keepLatest * 2, 30),
+                  status: 'completed',
+                });
+
+                const sortedRuns = (runsResponse.data.workflow_runs || [])
+                  .filter(r => r.id !== currentRunId)
+                  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                for (let i = 0; i < Math.min(keepLatest, sortedRuns.length); i++) {
+                  protectedRunIds.add(sortedRuns[i].id);
+                  console.log(`🛡️ Protecting latest run #${sortedRuns[i].run_number} (ID: ${sortedRuns[i].id}) created at ${sortedRuns[i].created_at}`);
+                }
+              } catch (err) {
+                console.warn(`Warning fetching workflow runs: ${err.message}. Proceeding with artifact list.`);
+              }
+            }
+
+            // 2. Fetch all artifacts in the repository
+            let artifacts = [];
+            try {
+              artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+            } catch (err) {
+              console.error(`Failed to list artifacts: ${err.message}`);
+              throw err;
+            }
+
+            console.log(`\n📦 Found a total of ${artifacts.length} artifact(s) in repository.`);
+
+            if (artifacts.length === 0) {
+              console.log("No artifacts found to clean up.");
+              return;
+            }
+
+            let deletedCount = 0;
+            let protectedCount = 0;
+            let failedCount = 0;
+
+            for (const artifact of artifacts) {
+              const runId = artifact.workflow_run ? artifact.workflow_run.id : null;
+              const isProtected = runId && protectedRunIds.has(runId);
+
+              if (isProtected) {
+                console.log(`⏩ [KEEP] Artifact "${artifact.name}" (ID: ${artifact.id}, Size: ${(artifact.size_in_bytes / (1024 * 1024)).toFixed(2)} MB) belongs to protected run ID: ${runId}`);
+                protectedCount++;
+                continue;
+              }
+
+              if (isDryRun) {
+                console.log(`🔍 [DRY RUN] Would delete artifact "${artifact.name}" (ID: ${artifact.id}, Size: ${(artifact.size_in_bytes / (1024 * 1024)).toFixed(2)} MB, Created: ${artifact.created_at})`);
+                deletedCount++;
+                continue;
+              }
+
+              try {
+                console.log(`🗑️ [DELETE] Deleting artifact "${artifact.name}" (ID: ${artifact.id}, Size: ${(artifact.size_in_bytes / (1024 * 1024)).toFixed(2)} MB, Created: ${artifact.created_at})...`);
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id,
+                });
+                deletedCount++;
+              } catch (delError) {
+                console.error(`❌ Failed to delete artifact ${artifact.id} (${artifact.name}): ${delError.message}`);
+                failedCount++;
+              }
+            }
+
+            console.log("\n==========================================");
+            console.log(`Cleanup Summary:`);
+            console.log(`- Total Artifacts Found: ${artifacts.length}`);
+            console.log(`- Successfully Deleted: ${deletedCount}`);
+            console.log(`- Protected / Kept: ${protectedCount}`);
+            if (failedCount > 0) {
+              console.log(`- Failed Deletions: ${failedCount}`);
+            }
+            console.log("==========================================");

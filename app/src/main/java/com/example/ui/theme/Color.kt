@@ -2,27 +2,32 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Clean Minimalism Color Palette
-val MinimalistPrimary = Color(0xFF1C1B1F)
-val MinimalistPrimaryContainer = Color(0xFFEADDFF)
-val MinimalistOnPrimaryContainer = Color(0xFF21005D)
+// Brand Green Color Palette (Tailored to match design screenshot)
+val BrandGreen = Color(0xFF00C853)
+val BrandGreenDark = Color(0xFF009624)
+val BrandGreenLight = Color(0xFFE8F5E9)
+val BrandLime = Color(0xFF84CC16)
 
-val MinimalistSecondary = Color(0xFF625B71)
-val MinimalistSecondaryContainer = Color(0xFFE8DEF8)
-val MinimalistOnSecondaryContainer = Color(0xFF1D192B)
+val MinimalistPrimary = Color(0xFF00C853)
+val MinimalistPrimaryContainer = Color(0xFFE8F5E9)
+val MinimalistOnPrimaryContainer = Color(0xFF00600F)
 
-val MinimalistTertiary = Color(0xFF7D5260)
-val MinimalistTertiaryContainer = Color(0xFFFFD8E4)
-val MinimalistOnTertiaryContainer = Color(0xFF31111D)
+val MinimalistSecondary = Color(0xFF475569)
+val MinimalistSecondaryContainer = Color(0xFFF1F5F9)
+val MinimalistOnSecondaryContainer = Color(0xFF0F172A)
 
-// Light Palette - Clean Minimalist Canvas
-val CleanLightBg = Color(0xFFFCF8F9)
+val MinimalistTertiary = Color(0xFF0284C7)
+val MinimalistTertiaryContainer = Color(0xFFE0F2FE)
+val MinimalistOnTertiaryContainer = Color(0xFF0369A1)
+
+// Light Palette - Crisp Clean White Canvas
+val CleanLightBg = Color(0xFFFFFFFF)
 val CleanLightSurface = Color(0xFFFFFFFF)
-val CleanLightSurfaceVariant = Color(0xFFF4EFF4)
-val CleanLightOnSurface = Color(0xFF1C1B1F)
-val CleanLightOnSurfaceVariant = Color(0xFF49454F)
-val CleanLightOutline = Color(0xFFE6E0E9)
-val CleanLightOutlineVariant = Color(0xFFF2EDF4)
+val CleanLightSurfaceVariant = Color(0xFFF1F5F9)
+val CleanLightOnSurface = Color(0xFF1E293B)
+val CleanLightOnSurfaceVariant = Color(0xFF64748B)
+val CleanLightOutline = Color(0xFFE2E8F0)
+val CleanLightOutlineVariant = Color(0xFFF1F5F9)
 
 // Dark Palette - Clean Minimalist Dark
 val CleanDarkBg = Color(0xFF141218)

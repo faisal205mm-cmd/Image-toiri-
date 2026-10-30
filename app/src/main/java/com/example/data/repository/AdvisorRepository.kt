@@ -24,8 +24,6 @@ import com.example.data.db.PricingSkuEntity
 import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.firebase.SaleFirestoreManager
-import com.example.data.image.ImagePromptEngine
-import com.example.data.image.StructuredImagePrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -42,7 +40,7 @@ enum class AdvisorPersona(
 ) {
     GENERAL(
         id = "GENERAL",
-        title = "দোকান ও ব্যবসা পরামর্শক",
+        title = "লোকাল ও ব্যবসা পরামর্শক",
         subtitle = "বিক্রি, বাকি, খরচ ও ফায়ারবেস ক্লাউড অডিট",
         avatarIcon = "sparkles",
         systemPrompt = """You are the official in-app AI Store Manager and Financial Consultant for this Apparel & Fashion Retail Store (দোকানের ডিজিটাল ম্যানেজার ও হিসাবরক্ষক).
@@ -110,35 +108,9 @@ class AdvisorRepository(
 
     private val apiService: GeminiApiService = GeminiClient.apiService
     private var customApiKey: String? = null
-    private var customPollinationsApiKey: String? = null
 
     fun setCustomApiKey(key: String?) {
         customApiKey = key?.trim()?.ifBlank { null }
-    }
-
-    fun setCustomPollinationsApiKey(key: String?) {
-        customPollinationsApiKey = key?.trim()?.ifBlank { null }
-    }
-
-    fun getPollinationsApiKey(): String {
-        return customPollinationsApiKey ?: ""
-    }
-
-    fun getPollinationsApiKeyInfo(): Pair<Boolean, String> {
-        val custom = customPollinationsApiKey
-        if (!custom.isNullOrBlank()) {
-            val masked = if (custom.length > 8) {
-                "${custom.take(4)}...${custom.takeLast(4)}"
-            } else {
-                "••••••••"
-            }
-            return Pair(true, "Custom Key ($masked)")
-        }
-        return Pair(true, "Active (Free & Open Tier)")
-    }
-
-    suspend fun validatePollinationsApiKey(keyToTest: String): Pair<Boolean, String> {
-        return com.example.data.api.PollinationsClient.testConnection(keyToTest.trim().ifBlank { null })
     }
 
     fun getEffectiveApiKey(): String {
@@ -203,292 +175,11 @@ class AdvisorRepository(
         }
     }
 
-    // --- Intent Detection & Image Generation ---
-    fun isImageGenerationIntent(prompt: String): Boolean {
-        val lower = prompt.lowercase(Locale.ROOT).trim()
-        if (lower.startsWith("/image") || lower.startsWith("/img") || lower.startsWith("/draw") || lower.startsWith("/generate_image")) {
-            return true
-        }
-        // Bengali / Bangla keywords
-        val bengaliKeywords = listOf(
-            "image toiri", "chobi toiri", "ছবি তৈরি", "ছবি বানাও", "ইমেজ তৈরি", "ইমেজ বানাও",
-            "ছবি আঁকো", "image banao", "chobi banao", "ছবি দেখাও", "image dekhaw",
-            "chobi dao", "image dao", "ekta chobi", "ekta image", "ছবি জেনারেট", "image generate",
-            "ছবি বানিয়ে দাও", "chobi lagbe", "image lagbe", "ফটোগ্রাফি", "ফটোগ্রাফ",
-            "মকআপ", "ওয়ালপেপার"
-        )
-        if (bengaliKeywords.any { lower.contains(it) }) {
-            return true
-        }
-        // English keywords
-        val englishKeywords = listOf(
-            "generate an image", "generate image", "create an image", "create image",
-            "generate a picture", "create a picture", "generate a photo", "create a photo",
-            "generate visual", "create visual", "make an image", "make a photo", "make a picture",
-            "draw an image", "draw a picture", "draw a", "draw me", "design an image",
-            "render an image", "render a picture", "sketch an image", "generate a design of",
-            "generate illustration", "create illustration", "generate artwork", "create artwork",
-            "photo of", "picture of", "image of", "product photography", "fashion photography",
-            "product shot", "studio shot", "catalog shot"
-        )
-        if (englishKeywords.any { lower.contains(it) }) {
-            return true
-        }
-        // Detection for contextual requests like "সাদা background এ একটা কালো cargo pant দেখাও" or "sada background e black shoe dekhao"
-        val hasVisualTerm = lower.contains("background") || lower.contains("ব্যাকগ্রাউন্ড") || lower.contains("studio") ||
-                lower.contains("lighting") || lower.contains("cinematic") || lower.contains("সিনেমাটিক")
-        val hasApparelOrProduct = lower.contains("pant") || lower.contains("প্যান্ট") || lower.contains("shoe") ||
-                lower.contains("জুতো") || lower.contains("saree") || lower.contains("শাড়ি") || lower.contains("hoodie") ||
-                lower.contains("হুডি") || lower.contains("jacket") || lower.contains("জ্যাকেট") || lower.contains("model") ||
-                lower.contains("মডেল") || lower.contains("watch") || lower.contains("ঘড়ি") || lower.contains("bottle") ||
-                lower.contains("বোতল") || lower.contains("t-shirt") || lower.contains("টি-শার্ট")
-        val hasRequestVerb = lower.contains("dekhao") || lower.contains("দেখাও") || lower.contains("banao") ||
-                lower.contains("বানাও") || lower.contains("toiri") || lower.contains("তৈরি")
 
-        return (hasVisualTerm && (hasApparelOrProduct || hasRequestVerb)) || (hasApparelOrProduct && hasRequestVerb)
-    }
 
-    private fun extractCleanImagePrompt(prompt: String): String {
-        var cleaned = prompt.trim()
-        if (cleaned.startsWith("/image", ignoreCase = true)) {
-            cleaned = cleaned.removePrefix("/image").removePrefix(":").trim()
-        } else if (cleaned.startsWith("/img", ignoreCase = true)) {
-            cleaned = cleaned.removePrefix("/img").removePrefix(":").trim()
-        }
-        return if (cleaned.isNotBlank()) cleaned else prompt
-    }
 
-    suspend fun generateWithPollinations(
-        prompt: String,
-        aspectRatio: String = "1:1"
-    ): Pair<String?, String> = withContext(Dispatchers.IO) {
-        val structured = ImagePromptEngine.analyzeAndOptimize(
-            userPrompt = prompt,
-            overrideAspectRatio = if (aspectRatio != "1:1") aspectRatio else null
-        )
-        val cleanPrompt = structured.optimizedPrompt
-        val targetRatio = structured.aspectRatio
-        val (width, height) = when (targetRatio) {
-            "16:9" -> Pair(1280, 720)
-            "9:16" -> Pair(720, 1280)
-            "4:3" -> Pair(1024, 768)
-            "3:4" -> Pair(768, 1024)
-            else -> Pair(1024, 1024)
-        }
-        val pollinationsKey = customPollinationsApiKey
-        Log.d("AdvisorRepository", "Pollinations Request -> Mode: ${structured.mode}, Ratio: $targetRatio (${width}x$height)")
-        Log.d("AdvisorRepository", "Pollinations Prompt: $cleanPrompt")
 
-        val imageUrl = com.example.data.api.PollinationsClient.buildImageUrl(
-            prompt = cleanPrompt,
-            width = width,
-            height = height,
-            model = "flux",
-            apiKey = pollinationsKey
-        )
-        val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
-        val localFile = File(imagesDir, "pollinations_${System.currentTimeMillis()}_${(100..999).random()}.jpg")
-        val downloaded = com.example.data.api.PollinationsClient.downloadImage(
-            url = imageUrl,
-            outputFile = localFile,
-            apiKey = pollinationsKey
-        )
-        val finalPath = if (downloaded && localFile.exists() && localFile.length() > 0) {
-            localFile.absolutePath
-        } else {
-            imageUrl
-        }
-        val messageText = "🎨 **Visual Created (Pollinations AI - Flux)**\n\n${structured.bengaliAnalysis}\n\n**Optimized Prompt:**\n*$cleanPrompt*"
-        Pair(finalPath, messageText)
-    }
 
-    suspend fun generateImage(
-        sessionId: Long?,
-        persona: AdvisorPersona,
-        prompt: String,
-        aspectRatio: String = "1:1"
-    ): Pair<Long, String> = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        val activeSessionId = if (sessionId == null || sessionId <= 0L) {
-            val autoTitle = "🎨 " + if (prompt.length > 30) prompt.take(30).trim() + "..." else prompt
-            database.chatDao().insertSession(
-                ChatSessionEntity(
-                    title = autoTitle,
-                    persona = persona.id,
-                    createdAt = now,
-                    updatedAt = now,
-                    messageCount = 0,
-                    lastSnippet = prompt
-                )
-            )
-        } else {
-            sessionId
-        }
-
-        // Save User Prompt Message
-        database.chatDao().insertMessage(
-            ChatMessageEntity(
-                sessionId = activeSessionId,
-                role = "user",
-                message = prompt,
-                persona = persona.id,
-                imageUrl = null,
-                isImagePrompt = true,
-                timestamp = now
-            )
-        )
-
-        val structured = ImagePromptEngine.analyzeAndOptimize(
-            userPrompt = prompt,
-            overrideAspectRatio = if (aspectRatio != "1:1") aspectRatio else null
-        )
-        val cleanPrompt = structured.optimizedPrompt
-        val targetRatio = structured.aspectRatio
-
-        Log.d("AdvisorRepository", "Structured Image Understanding:\nMode: ${structured.mode}\nRatio: $targetRatio\nPrompt: $cleanPrompt")
-
-        var savedImagePath: String? = null
-        var modelMessageText: String = ""
-
-        val apiKey = getEffectiveApiKey()
-        if (apiKey.isBlank()) {
-            // Direct Pollinations AI generation when Gemini key is not configured
-            val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
-            savedImagePath = pollinationsPath
-            modelMessageText = pollinationsMessage
-        } else {
-            val request = GeminiRequest(
-                contents = listOf(
-                    GeminiContent(
-                        parts = listOf(GeminiPart(text = cleanPrompt))
-                    )
-                ),
-                generationConfig = GenerationConfig(
-                    responseModalities = listOf("TEXT", "IMAGE"),
-                    imageConfig = ImageConfig(aspectRatio = targetRatio, imageSize = "1K")
-                )
-            )
-
-            val imageCandidateModels = listOf(
-                GeminiClient.MODEL_IMAGE_PRIMARY, // gemini-2.5-flash-image
-                GeminiClient.MODEL_IMAGE_LATEST,  // gemini-3.1-flash-image-preview
-                GeminiClient.MODEL_IMAGE_PRO      // gemini-3-pro-image-preview
-            )
-
-            var lastException: Exception? = null
-            var successfulResponse: com.example.data.api.GeminiResponse? = null
-            var usedModelName = GeminiClient.MODEL_IMAGE_PRIMARY
-
-            // Attempt generation with retry and multi-model fallback
-            for (model in imageCandidateModels) {
-                for (attempt in 1..2) {
-                    try {
-                        val response = apiService.generateContent(
-                            model = model,
-                            apiKey = apiKey,
-                            request = request
-                        )
-                        val candidate = response.candidates?.firstOrNull()
-                        val parts = candidate?.content?.parts ?: emptyList()
-                        val hasImage = parts.any { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
-                        if (hasImage || parts.any { !it.text.isNullOrBlank() }) {
-                            successfulResponse = response
-                            usedModelName = model
-                            lastException = null
-                            break
-                        }
-                    } catch (e: Exception) {
-                        lastException = e
-                        val parsed = GeminiErrorParser.parse(e)
-                        Log.w("AdvisorRepository", "Model $model attempt $attempt failed: ${parsed.title} (${parsed.httpCode ?: 0}) - ${parsed.message}")
-                        if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
-                            kotlinx.coroutines.delay(1500L * attempt)
-                        } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
-                            break
-                        } else {
-                            kotlinx.coroutines.delay(800L)
-                        }
-                    }
-                }
-                if (successfulResponse != null || lastException?.let { GeminiErrorParser.parse(it).errorType == GeminiErrorType.INVALID_API_KEY } == true) {
-                    break
-                }
-            }
-
-            try {
-                if (successfulResponse != null) {
-                    val candidate = successfulResponse.candidates?.firstOrNull()
-                    val parts = candidate?.content?.parts ?: emptyList()
-                    val imagePart = parts.firstOrNull { it.inlineData != null && !it.inlineData.data.isNullOrBlank() }
-                    val textPart = parts.firstOrNull { !it.text.isNullOrBlank() }?.text
-
-                    if (imagePart?.inlineData != null) {
-                        try {
-                            val bytes = Base64.decode(imagePart.inlineData.data, Base64.DEFAULT)
-                            val imagesDir = File(context.filesDir, "generated_images").apply { mkdirs() }
-                            val ext = if (imagePart.inlineData.mimeType.contains("jpeg") || imagePart.inlineData.mimeType.contains("jpg")) "jpg" else "png"
-                            val file = File(imagesDir, "img_${System.currentTimeMillis()}_${(100..999).random()}.$ext")
-                            file.writeBytes(bytes)
-                            savedImagePath = file.absolutePath
-                        } catch (_: Exception) {
-                            savedImagePath = "data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}"
-                        }
-                    }
-
-                    val analysisBlock = structured.bengaliAnalysis
-                    modelMessageText = when {
-                        savedImagePath != null && !textPart.isNullOrBlank() -> "$textPart\n\n$analysisBlock"
-                        savedImagePath != null -> "🎨 **Visual Created ($usedModelName)**\n\n$analysisBlock\n\n**Optimized Prompt:**\n*$cleanPrompt*"
-                        !textPart.isNullOrBlank() -> textPart
-                        else -> "🎨 Image generated successfully."
-                    }
-                } else {
-                    // Fallback to Pollinations AI
-                    Log.i("AdvisorRepository", "Gemini generation unavailable, triggering Pollinations AI fallback")
-                    val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
-                    savedImagePath = pollinationsPath
-                    modelMessageText = "$pollinationsMessage\n\n*(Gemini কোটা লিমিট থাকায় Pollinations AI দিয়ে তৈরি করা হয়েছে)*"
-                }
-            } catch (e: Exception) {
-                Log.e("AdvisorRepository", "Gemini image failed with exception: ${e.message}", e)
-                // Fallback to Pollinations AI
-                val (pollinationsPath, pollinationsMessage) = generateWithPollinations(prompt, targetRatio)
-                if (pollinationsPath != null) {
-                    savedImagePath = pollinationsPath
-                    modelMessageText = "$pollinationsMessage\n\n*(Pollinations AI দিয়ে নিরবচ্ছিন্নভাবে তৈরি করা হয়েছে)*"
-                } else {
-                    val parsed = GeminiErrorParser.parse(e)
-                    Log.e("AdvisorRepository", "Both Gemini & Pollinations failed. Code: ${parsed.httpCode}, Reason: ${parsed.message}")
-                    modelMessageText = "⚠️ **Image তৈরি করা যায়নি। API/model connection অথবা generation limit পরীক্ষা করুন।**\n\n*কারিগরি বিবরণ (Debug Info):*\n- Status / Error: ${parsed.title}\n- Code: ${parsed.httpCode ?: "N/A"}\n- Details: ${parsed.message}\n- Hint: 3-dot মেনু থেকে নতুন Gemini Key কনফিগার করতে পারেন।"
-                }
-            }
-        }
-
-        database.chatDao().insertMessage(
-            ChatMessageEntity(
-                sessionId = activeSessionId,
-                role = "model",
-                message = modelMessageText,
-                persona = persona.id,
-                imageUrl = savedImagePath,
-                isImagePrompt = true,
-                timestamp = System.currentTimeMillis()
-            )
-        )
-
-        // Update session metadata
-        val existing = database.chatDao().getSessionByIdDirect(activeSessionId)
-        val count = (existing?.messageCount ?: 0) + 2
-        database.chatDao().updateSessionMeta(
-            id = activeSessionId,
-            title = existing?.title ?: ("🎨 " + prompt.take(30)),
-            snippet = if (savedImagePath != null) "[Image] $prompt".take(60) else modelMessageText.take(60),
-            updatedAt = System.currentTimeMillis(),
-            count = count
-        )
-
-        Pair(activeSessionId, modelMessageText)
-    }
 
     // Chat
     // --- Chat Sessions & History ---
@@ -540,22 +231,11 @@ class AdvisorRepository(
         persona: AdvisorPersona,
         userPrompt: String,
         history: List<ChatMessageEntity>,
-        isImageMode: Boolean = false,
-        aspectRatio: String = "1:1",
         attachedFilePath: String? = null,
         attachedMimeType: String? = null,
         attachedFileName: String? = null,
         attachedIsVideo: Boolean = false
     ): Pair<Long, String> = withContext(Dispatchers.IO) {
-        if (isImageMode || isImageGenerationIntent(userPrompt)) {
-            return@withContext generateImage(
-                sessionId = sessionId,
-                persona = persona,
-                prompt = userPrompt,
-                aspectRatio = aspectRatio
-            )
-        }
-
         val now = System.currentTimeMillis()
         val displayPrompt = if (userPrompt.isNotBlank()) {
             userPrompt
@@ -866,164 +546,7 @@ ${parsed.message}
         Pair(activeSessionId, modelText)
     }
 
-    /**
-     * Specialized 1v1 Real-Time Voice Call conversational turn.
-     * Generates concise, natural spoken responses (1-3 sentences without markdown/formatting)
-     * optimized specifically for live telephone-style dialogue and speech synthesis.
-     */
-    suspend fun sendVoiceCallTurn(
-        sessionId: Long?,
-        persona: AdvisorPersona,
-        userSpeech: String,
-        history: List<ChatMessageEntity>
-    ): Pair<Long, String> = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        val displayPrompt = userSpeech.trim()
 
-        val activeSessionId = if (sessionId == null || sessionId <= 0L) {
-            val autoTitle = "📞 কল: " + (if (displayPrompt.length > 25) displayPrompt.take(25).trim() + "..." else displayPrompt)
-            database.chatDao().insertSession(
-                ChatSessionEntity(
-                    title = autoTitle,
-                    persona = persona.id,
-                    createdAt = now,
-                    updatedAt = now,
-                    messageCount = 0,
-                    lastSnippet = displayPrompt
-                )
-            )
-        } else {
-            sessionId
-        }
-
-        // Save User voice turn
-        database.chatDao().insertMessage(
-            ChatMessageEntity(
-                sessionId = activeSessionId,
-                role = "user",
-                message = "🎙️ $displayPrompt",
-                persona = persona.id,
-                timestamp = now
-            )
-        )
-
-        val apiKey = getEffectiveApiKey()
-        if (apiKey.isBlank()) {
-            val fallback = "আপনার জেমিনি এপিআই কি প্রয়োজন। অনুগ্রহ করে ড্রয়ার মেনু থেকে আপনার কি যুক্ত করে নিন।"
-            database.chatDao().insertMessage(
-                ChatMessageEntity(
-                    sessionId = activeSessionId,
-                    role = "model",
-                    message = fallback,
-                    persona = persona.id,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-            return@withContext Pair(activeSessionId, fallback)
-        }
-
-        val contentsList = mutableListOf<GeminiContent>()
-        // Include last few turns for context
-        val recentHistory = history.takeLast(6)
-        for (item in recentHistory) {
-            val mappedRole = if (item.role == "user") "user" else "model"
-            contentsList.add(
-                GeminiContent(
-                    role = mappedRole,
-                    parts = listOf(GeminiPart(text = item.message.removePrefix("🎙️ ").trim()))
-                )
-            )
-        }
-
-        contentsList.add(
-            GeminiContent(
-                role = "user",
-                parts = listOf(GeminiPart(text = displayPrompt))
-            )
-        )
-
-        val storeContext = getLiveStoreBusinessContext()
-        val voiceCallSystemPrompt = """
-            [DIRECT 1-ON-1 REAL-TIME LIVE VOICE CALL MODE - VOICE AGENT]
-            You are Gemini, an intelligent, friendly, natural-sounding voice agent talking directly with the garment shop owner on a 1v1 live telephone voice call.
-            Persona: ${persona.title}.
-            
-            CRITICAL SPOKEN VOICE AGENT RULES:
-            1. SOUND NATURAL AND CONVERSATIONAL: Speak exactly like a real human voice agent having a phone call. Use natural, warm everyday conversational spoken Bengali (চলিত মুখের ভাষা). If the user speaks in English, reply in natural spoken English.
-            2. SHORT, PUNCHY CONVERSATIONAL TURNS: Keep your answer to 1 or 2 sentences maximum (15 to 30 words). Never monologue, read long lists, or give essays. The user is listening to your voice in real time.
-            3. NATURAL CONVERSATION CUES: Use natural telephone speech phrasing like "জি ভাইয়া", "শুনুন", "অবশ্যই", "আজকের মোট বিক্রি হলো...", "আলহামদুলিল্লাহ".
-            4. STRICTLY NO MARKDOWN OR SYMBOLS: Never use asterisks (*, **), hashes (#), bullet points (-), numbered lists (1.), parenthesis, tables, code, or emojis. Every word you return will be read directly out loud to the user's ear.
-            5. REAL-TIME SHOP METRICS: If asked about today's sales, dues, expenses, or stock, use this live shop context:
-            $storeContext
-        """.trimIndent()
-
-        val systemInstruction = GeminiContent(
-            parts = listOf(GeminiPart(text = voiceCallSystemPrompt))
-        )
-
-        val request = GeminiRequest(
-            contents = contentsList,
-            generationConfig = GenerationConfig(
-                temperature = 0.6f,
-                topP = 0.9f
-            ),
-            systemInstruction = systemInstruction
-        )
-
-        var chatResponseText: String? = null
-        val chatModels = listOf(GeminiClient.MODEL_FLASH, GeminiClient.MODEL_FLASH_LITE)
-
-        for (m in chatModels) {
-            try {
-                val response = apiService.generateContent(
-                    model = m,
-                    apiKey = apiKey,
-                    request = request
-                )
-                val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (!text.isNullOrBlank()) {
-                    chatResponseText = text
-                    break
-                }
-            } catch (e: Exception) {
-                Log.w("AdvisorRepository", "Voice call turn attempt failed with $m: ${e.message}")
-            }
-        }
-
-        var spokenReply = chatResponseText?.trim()
-        if (spokenReply.isNullOrBlank()) {
-            spokenReply = "দুঃখিত, কথাটা পরিষ্কার শুনতে পাইনি। আপনি কি আবার একটু বলবেন?"
-        } else {
-            // Clean markdown syntax if any leaked
-            spokenReply = spokenReply
-                .replace(Regex("[*#_~`>-]"), "")
-                .replace(Regex("\\[(.*?)\\]\\(.*?\\)"), "$1")
-                .replace(Regex("\\n+"), " ")
-                .trim()
-        }
-
-        database.chatDao().insertMessage(
-            ChatMessageEntity(
-                sessionId = activeSessionId,
-                role = "model",
-                message = spokenReply,
-                persona = persona.id,
-                timestamp = System.currentTimeMillis()
-            )
-        )
-
-        val existing = database.chatDao().getSessionByIdDirect(activeSessionId)
-        val count = (existing?.messageCount ?: 0) + 2
-        database.chatDao().updateSessionMeta(
-            id = activeSessionId,
-            title = existing?.title ?: ("📞 " + displayPrompt.take(25)),
-            snippet = spokenReply.take(60),
-            updatedAt = System.currentTimeMillis(),
-            count = count
-        )
-
-        Pair(activeSessionId, spokenReply)
-    }
 
     // Pricing Audit (Complex financial task -> Gemini Pro)
     suspend fun auditPricing(sku: PricingSkuEntity): String = withContext(Dispatchers.IO) {

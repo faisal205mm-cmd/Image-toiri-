@@ -27,9 +27,6 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Call Sound Effects for real live call feedback
-    val soundEffects = CallSoundEffects()
-
     // --- TTS States ---
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
@@ -401,8 +398,6 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
 
                     override fun onEndOfSpeech() {
                         _isListening.value = false
-                        // Audio acknowledgment beep when user finishes talking
-                        soundEffects.playSpeechRecognized()
                     }
 
                     override fun onError(error: Int) {
@@ -546,7 +541,6 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
         mainHandler.post {
             cancelTtsWatchdog()
             stopWaveformSimulation()
-            soundEffects.release()
 
             try {
                 textToSpeech?.stop()

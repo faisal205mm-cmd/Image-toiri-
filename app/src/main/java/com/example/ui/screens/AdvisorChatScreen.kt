@@ -21,11 +21,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -50,8 +55,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -137,7 +140,6 @@ import coil.request.ImageRequest
 import com.example.data.db.ChatMessageEntity
 import com.example.data.repository.AdvisorPersona
 import com.example.ui.viewmodel.AdvisorViewModel
-import com.example.ui.viewmodel.VoiceCallState
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -166,46 +168,11 @@ fun AdvisorChatScreen(
     val currentSpeakingMessageId by viewModel.currentSpeakingMessageId.collectAsStateWithLifecycle()
     val autoVoiceReply by viewModel.autoVoiceReply.collectAsStateWithLifecycle()
 
-    // 1v1 AI Voice Call States
-    val isCallActive by viewModel.isCallActive.collectAsStateWithLifecycle()
-    val callDurationSeconds by viewModel.callDurationSeconds.collectAsStateWithLifecycle()
-    val voiceCallState by viewModel.voiceCallState.collectAsStateWithLifecycle()
-    var showCallScreen by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isCallActive) {
-        if (isCallActive) {
-            showCallScreen = true
-        }
-    }
-
     val listState = rememberLazyListState()
     var showClearDialog by remember { mutableStateOf(false) }
     var showMediaAttachMenu by remember { mutableStateOf(false) }
-    var viewingImageUrl by remember { mutableStateOf<String?>(null) }
-    var viewingImagePrompt by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-
-    val callAudioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            viewModel.startVoiceCall()
-            showCallScreen = true
-        } else {
-            Toast.makeText(context, "১:১ ভয়েস কলের জন্য মাইক্রোফোন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val onStartVoiceCallClicked = {
-        val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-        if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
-            viewModel.startVoiceCall()
-            showCallScreen = true
-        } else {
-            callAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
 
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -293,246 +260,141 @@ fun AdvisorChatScreen(
         )
     }
 
-    // Fullscreen Image Preview Dialog
-    if (viewingImageUrl != null) {
-        FullscreenImageViewerDialog(
-            imageUrl = viewingImageUrl!!,
-            prompt = viewingImagePrompt,
-            onDismiss = { viewingImageUrl = null },
-            onShare = { path -> shareImage(context, path) },
-            onEditPrompt = { promptToEdit ->
-                viewModel.toggleImageMode(true)
-                viewModel.onChatInputChange(promptToEdit)
-            }
-        )
-    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color.White)
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
     ) {
-        // Mode Selection Bar
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.fillMaxWidth()
+        // Futuristic Dark Obsidian Card containing the entire chat view!
+        Card(
+            shape = RoundedCornerShape(26.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF04141B)),
+            border = BorderStroke(1.2.dp, Color(0xFF00E676).copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "AI Mode:",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = selectedPersona.title,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Layer 0: Decorative glowing emerald circles & arcs matching the screenshot!
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Top-left glowing arc
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF00E676).copy(alpha = 0.22f), Color.Transparent),
+                            center = Offset(0f, 0f),
+                            radius = size.width * 0.65f
+                        ),
+                        radius = size.width * 0.65f,
+                        center = Offset(0f, 0f)
+                    )
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = 0.35f),
+                        center = Offset(0f, 0f),
+                        radius = size.width * 0.55f,
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = 0.2f),
+                        center = Offset(0f, 0f),
+                        radius = size.width * 0.7f,
+                        style = Stroke(width = 1.2.dp.toPx())
+                    )
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 1v1 Real-Time AI Voice Call Button
-                        FilledTonalButton(
-                            onClick = {
-                                if (isCallActive) {
-                                    showCallScreen = true
-                                } else {
-                                    onStartVoiceCallClicked()
-                                }
-                            },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (isCallActive) Color(0xFF059669) else MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = if (isCallActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .height(32.dp)
-                                .testTag("top_bar_voice_call_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = "১:১ ভয়েস কল",
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isCallActive) "কল চলছে" else "১:১ কল",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
+                    // Bottom-left glowing circle
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF00E676).copy(alpha = 0.28f), Color.Transparent),
+                            center = Offset(size.width * 0.1f, size.height * 0.75f),
+                            radius = size.width * 0.45f
+                        ),
+                        radius = size.width * 0.45f,
+                        center = Offset(size.width * 0.1f, size.height * 0.75f)
+                    )
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = 0.35f),
+                        center = Offset(size.width * 0.1f, size.height * 0.75f),
+                        radius = size.width * 0.4f,
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
 
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Auto Voice Reply Toggle Button
-                        IconButton(
-                            onClick = {
-                                val nextState = !autoVoiceReply
-                                viewModel.toggleAutoVoiceReply(nextState)
-                                Toast.makeText(
-                                    context,
-                                    if (nextState) "AI ভয়েস উত্তর চালু" else "AI ভয়েস উত্তর বন্ধ",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            modifier = Modifier
-                                .size(32.dp)
-                                .testTag("toggle_voice_reply_button")
-                        ) {
-                            Icon(
-                                imageVector = if (autoVoiceReply) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                                contentDescription = if (autoVoiceReply) "Voice Reply Enabled" else "Voice Reply Muted",
-                                tint = if (autoVoiceReply) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-
-                        if (chatMessages.isNotEmpty()) {
-                            IconButton(
-                                onClick = { showClearDialog = true },
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .testTag("clear_chat_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Clear Chat",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
+                    // Bottom-right concentric glowing arcs
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = 0.35f),
+                        center = Offset(size.width * 0.95f, size.height * 0.8f),
+                        radius = size.width * 0.6f,
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = 0.22f),
+                        center = Offset(size.width * 0.95f, size.height * 0.8f),
+                        radius = size.width * 0.75f,
+                        style = Stroke(width = 1.2.dp.toPx())
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Horizontal Persona Chips
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 2.dp)
+                // Layer 1: Foreground Column
+                Column(
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(AdvisorPersona.values()) { persona ->
-                        val isSelected = persona == selectedPersona
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                viewModel.selectPersona(persona)
-                            },
-                            label = {
-                                Text(
-                                    text = persona.title,
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                )
-                            },
-                            leadingIcon = {
-                                val icon: ImageVector = when (persona) {
-                                    AdvisorPersona.GENERAL -> Icons.Default.AutoAwesome
-                                    AdvisorPersona.CREATIVE -> Icons.Default.Palette
-                                    AdvisorPersona.CODING -> Icons.Default.Code
-                                    AdvisorPersona.LEARNING -> Icons.Default.School
-                                }
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = persona.title,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier.testTag("mode_chip_${persona.name.lowercase()}")
-                        )
-                    }
-                }
-
-                // Floating Active Voice Call Banner if minimized
-                AnimatedVisibility(
-                    visible = isCallActive && !showCallScreen,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    Surface(
-                        color = Color(0xFF0F172A),
-                        contentColor = Color.White,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF10B981)),
+                    // Horizontal Persona Chips Row inside the dark card
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .clickable { showCallScreen = true }
-                            .testTag("floating_call_status_bar")
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .background(Color(0xFF10B981), CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = "১:১ এআই ভয়েস কল চালু আছে",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = Color.White
-                                    )
-                                    Text(
-                                        text = when (voiceCallState) {
-                                            VoiceCallState.LISTENING -> "🎙️ কথা শুনছি..."
-                                            VoiceCallState.SPEAKING -> "🔊 এআই উত্তর দিচ্ছে..."
-                                            VoiceCallState.THINKING -> "⚡ এআই চিন্তা করছে..."
-                                            VoiceCallState.MUTED -> "🔇 মাইক মিউট করা"
-                                            else -> "ট্যাপ করে সরাসরি কল স্ক্রিনে ফিরুন"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF34D399)
-                                    )
+                            items(AdvisorPersona.values()) { persona ->
+                                val isSelected = persona == selectedPersona
+                                val chipBg = if (isSelected) Color(0xFF003816) else Color(0xFF0F1E24)
+                                val contentColor = Color.White
+                                val border = if (isSelected) {
+                                    BorderStroke(1.5.dp, Color(0xFF00E676))
+                                } else {
+                                    BorderStroke(1.dp, Color(0xFF1E3A44))
                                 }
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = String.format(Locale.US, "%02d:%02d", callDurationSeconds / 60, callDurationSeconds % 60),
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = Color(0xFF60A5FA),
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                IconButton(
-                                    onClick = { viewModel.endVoiceCall() },
-                                    modifier = Modifier.size(30.dp)
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = chipBg,
+                                    border = border,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { viewModel.selectPersona(persona) }
+                                        .testTag("mode_chip_${persona.name.lowercase()}")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CallEnd,
-                                        contentDescription = "কল শেষ করুন",
-                                        tint = Color(0xFFEF4444),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    ) {
+                                        val icon: ImageVector = when (persona) {
+                                            AdvisorPersona.GENERAL -> Icons.Default.AutoAwesome
+                                            AdvisorPersona.CREATIVE -> Icons.Default.Palette
+                                            AdvisorPersona.CODING -> Icons.Default.Code
+                                            AdvisorPersona.LEARNING -> Icons.Default.School
+                                        }
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = persona.title,
+                                            tint = contentColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = persona.title,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                                            ),
+                                            color = contentColor
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
 
         // Messages Thread
         Box(
@@ -548,7 +410,6 @@ fun AdvisorChatScreen(
                     onOpenHistory = onOpenHistory,
                     onPromptClick = { prompt -> viewModel.sendChatMessage(prompt) },
                     onVoiceClick = onVoiceMicClicked,
-                    onVoiceCallClick = onStartVoiceCallClicked,
                     onUploadPhotoClick = {
                         photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
@@ -578,17 +439,13 @@ fun AdvisorChatScreen(
                                 clipboardManager.setText(AnnotatedString(msg.message))
                                 Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                             },
-                            onImageClick = { url, prompt ->
-                                viewingImageUrl = url
-                                viewingImagePrompt = prompt
-                            },
                             onEditPrompt = { promptToEdit ->
                                 viewModel.onChatInputChange(promptToEdit)
                             },
                             onOpenHistory = onOpenHistory,
                             onRetry = {
                                 priorUserMsg?.let { userMsg ->
-                                    viewModel.retryMessage(userMsg.message, userMsg.isImagePrompt)
+                                    viewModel.retryMessage(userMsg.message)
                                 }
                             },
                             isSpeaking = isSpeaking && (currentSpeakingMessageId == msg.id),
@@ -600,8 +457,7 @@ fun AdvisorChatScreen(
                     if (isChatLoading) {
                         item {
                             AdvisorTypingIndicator(
-                                persona = selectedPersona,
-                                isImageGenerating = false
+                                persona = selectedPersona
                             )
                         }
                     }
@@ -1020,60 +876,13 @@ fun AdvisorChatScreen(
                             }
                         }
                     }
-
-                    // 5. AI Garment Designer
-                    Surface(
-                        onClick = {
-                            showMediaAttachMenu = false
-                            viewModel.toggleImageMode(true)
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("sheet_ai_design")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(14.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.tertiary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onTertiary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "✨ AI পোশাক ডিজাইন (AI Designer)",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "প্রম্পট দিয়ে নতুন পোশাকের ইমেজ তৈরি করুন",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
 
-        // Chat Input Bar & Voice Controls
+        // Chat Input Bar & Voice Controls inside the dark card
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            color = Color.Transparent,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1136,37 +945,29 @@ fun AdvisorChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
-                    // Dedicated High-Visibility Add (+) Option Button on Left side of Text Bar
-                    IconButton(
-                        onClick = { showMediaAttachMenu = true },
+                    // Left Green Circular Add Button (+)
+                    Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
-                            .background(
-                                if (attachedMedia != null) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                }
-                            )
-                            .testTag("add_option_button")
+                            .background(Color(0xFF00C853))
+                            .clickable { showMediaAttachMenu = true }
+                            .testTag("add_option_button"),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (attachedMedia != null) Icons.Default.Check else Icons.Default.Add,
                             contentDescription = "Add Option",
-                            tint = if (attachedMedia != null) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            },
-                            modifier = Modifier.size(26.dp)
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
+                    // Rounded Capsule Text Field with Mic inside trailing edge
                     OutlinedTextField(
                         value = chatInput,
                         onValueChange = { viewModel.onChatInputChange(it) },
@@ -1178,58 +979,60 @@ fun AdvisorChatScreen(
                                     "লিখুন বা মাইকে কথা বলুন..."
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                color = Color(0xFF94A3B8)
                             )
+                        },
+                        trailingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF142833))
+                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), CircleShape)
+                                    .clickable { onVoiceMicClicked() }
+                                    .testTag("voice_mic_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = if (isListening) "Stop Voice Listening" else "Voice Input",
+                                    tint = if (isListening) Color(0xFFEF4444) else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("chat_input_field"),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(26.dp),
                         maxLines = 4,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            focusedBorderColor = Color(0xFF00E676),
+                            unfocusedBorderColor = Color(0xFF00E676).copy(alpha = 0.6f),
+                            focusedContainerColor = Color(0xFF09161D),
+                            unfocusedContainerColor = Color(0xFF09161D),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF00E676)
                         )
                     )
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    // Dedicated Microphone Voice Button
-                    IconButton(
-                        onClick = onVoiceMicClicked,
+                    // Right Green Circular Send Button (>)
+                    Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
-                            .background(
-                                if (isListening) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.secondaryContainer
-                            )
-                            .testTag("voice_mic_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = if (isListening) "Stop Voice Listening" else "Voice Input",
-                            tint = if (isListening) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    FloatingActionButton(
-                        onClick = { viewModel.sendChatMessage() },
-                        shape = CircleShape,
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .testTag("send_chat_button")
+                            .background(Color(0xFF00C853))
+                            .clickable { viewModel.sendChatMessage() }
+                            .testTag("send_chat_button"),
+                        contentAlignment = Alignment.Center
                     ) {
                         if (isChatLoading) {
                             CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
+                                color = Color.White,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -1237,6 +1040,7 @@ fun AdvisorChatScreen(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send Message",
+                                tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -1244,303 +1048,116 @@ fun AdvisorChatScreen(
                 }
             }
         }
-    }
-
-    // --- 1v1 Real-Time AI Voice Call Fullscreen Overlay ---
-    if (showCallScreen && isCallActive) {
-        Dialog(
-            onDismissRequest = { showCallScreen = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnBackPress = true
-            )
-        ) {
-            VoiceCallScreen(
-                viewModel = viewModel,
-                onCloseScreen = { showCallScreen = false },
-                modifier = Modifier.fillMaxSize()
-            )
+            }
         }
     }
 }
+}
+
+
+
+
 
 @Composable
 fun EmptyChatGreeting(
     persona: AdvisorPersona,
     historyCount: Int = 0,
     onOpenHistory: () -> Unit = {},
-    onPromptClick: (String) -> Unit,
+    onPromptClick: (String) -> Unit = {},
     onVoiceClick: () -> Unit = {},
-    onVoiceCallClick: () -> Unit = {},
     onUploadPhotoClick: () -> Unit = {},
     onUploadVideoClick: () -> Unit = {},
     onBrowseFilesClick: () -> Unit = {}
 ) {
-    LazyColumn(
-        contentPadding = PaddingValues(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxSize()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("empty_chat_greeting"),
+        contentAlignment = Alignment.Center
     ) {
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        ) {
+            // Glowing Green & Lime Orb
             Box(
                 modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
-                    )
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                    .size(176.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Cloth & Fashion Store Assistant",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "পোশাকের ছবি বা ভিডিও আপলোড করুন এবং ফ্যাব্রিক, প্রাইসিং ও মার্কেটিং বিশ্লেষণ পান",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 1v1 Real-Time Voice Call Hero Card
-            Surface(
-                onClick = onVoiceCallClick,
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.5.dp, Color(0xFF10B981).copy(alpha = 0.7f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .testTag("empty_greeting_1v1_call_card")
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(listOf(Color(0xFF059669), Color(0xFF10B981)))
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = "১:১ কল",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "১:১ সরাসরি AI ভয়েস কল",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF10B981)
-                            ) {
-                                Text(
-                                    text = "LIVE CALL",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.ExtraBold),
-                                    color = Color.Black,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "টাইপ না করে সরাসরি রিয়েল-টাইমে কথা বলুন ও সমাধান নিন",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.75f)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Action Buttons: Upload Photo / Video / Browse Files / Voice
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 4.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onVoiceClick,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    ),
-                    modifier = Modifier.testTag("voice_greeting_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "মুখে বলুন",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = onUploadPhotoClick,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    modifier = Modifier.testTag("upload_photo_greeting_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AddPhotoAlternate,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "ছবি আপলোড",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = onUploadVideoClick,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                    ),
-                    modifier = Modifier.testTag("upload_video_greeting_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "ভিডিও আপলোড",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-            }
-
-            if (historyCount > 0) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                // Soft outer ambient glow
+                Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable { onOpenHistory() }
-                        .testTag("open_history_from_empty_greeting")
+                        .size(176.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF00E676).copy(alpha = 0.35f),
+                                    Color(0xFF00E676).copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+
+                // Central Gradient Badge: Green (#00C853) to Lime (#A3E635)
+                Box(
+                    modifier = Modifier
+                        .size(136.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF00C853),
+                                    Color(0xFFA3E635)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "View $historyCount saved conversation${if (historyCount > 1) "s" else ""}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI Sparkle",
+                        tint = Color.White,
+                        modifier = Modifier.size(70.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
+            // Greeting Headline from Screenshot: কিভাবে আপনাকে সাহায্য করতে পারি?
             Text(
-                text = "জনপ্রিয় প্রশ্ন ও কমান্ড:",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.primary
+                text = "কিভাবে আপনাকে সাহায্য করতে পারি?",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                ),
+                color = Color.White
             )
 
             Spacer(modifier = Modifier.height(10.dp))
-        }
 
-        val promptsToShow = listOf(
-            "📊 আমার দোকানের মোট বিক্রির হিসাব ও লাভ দেখাও",
-            "☁️ ক্লাউডে সংরক্ষিত বিক্রির ডাটা ও কাস্টমার বাকি পর্যালোচনা করো",
-            "💵 এই মাসের মোট বিক্রি, খরচ এবং নিট ব্যালেন্স কত?",
-            "👕 এই কাপড়ের কোয়ালিটি ও দাম কত রাখা উচিত?",
-            "👗 ফেসবুক পেইজে পোশাক বিক্রির আকর্ষণীয় ক্যাপশন লেখো",
-            "🧵 কাপড়ের জিএসএম (GSM) এবং ফ্যাব্রিক টাইপ বোঝার নিয়ম কি?",
-            "📈 কাপড়ের দোকানের জন্য কার্যকরী সোশ্যাল মিডিয়া মার্কেটিং প্ল্যান"
-        )
+            // Greeting Subtitle from Screenshot: আপনার প্রশ্ন লিখুন, আমি আছি আপনার সাথে
+            Text(
+                text = "আপনার প্রশ্ন লিখুন, আমি আছি আপনার সাথে",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp
+                ),
+                color = Color(0xFFCBD5E1)
+            )
 
-        items(promptsToShow) { prompt ->
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Rounded Green Indicator Accent Bar
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { 
-                        onPromptClick(prompt) 
-                    }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lightbulb,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = prompt,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
+                    .width(42.dp)
+                    .height(3.5.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0xFF00C853))
+            )
         }
     }
 }
@@ -1553,7 +1170,6 @@ fun ChatMessageBubble(
     message: ChatMessageEntity,
     persona: AdvisorPersona,
     onCopy: () -> Unit,
-    onImageClick: (String, String) -> Unit = { _, _ -> },
     onEditPrompt: (String) -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onRetry: () -> Unit = {},
@@ -1576,8 +1192,6 @@ fun ChatMessageBubble(
             mediaType = message.mediaType,
             mediaFileName = message.mediaFileName,
             timestamp = timeFormatted,
-            isImagePrompt = message.isImagePrompt,
-            onImageClick = { url -> onImageClick(url, message.message) },
             onVideoClick = { videoPath ->
                 com.example.data.util.MediaUtils.openMediaFile(context, videoPath, "video/*")
             }
@@ -1585,12 +1199,9 @@ fun ChatMessageBubble(
     } else {
         AdvisorMessageBubble(
             text = message.message,
-            imageUrl = message.imageUrl,
             timestamp = timeFormatted,
             persona = persona,
             onCopy = onCopy,
-            onImageClick = { url -> onImageClick(url, message.message) },
-            onEditPrompt = onEditPrompt,
             onOpenHistory = onOpenHistory,
             onRetry = onRetry,
             isSpeaking = isSpeaking,
@@ -1611,8 +1222,6 @@ fun UserMessageBubble(
     mediaType: String? = null,
     mediaFileName: String? = null,
     timestamp: String,
-    isImagePrompt: Boolean = false,
-    onImageClick: (String) -> Unit = {},
     onVideoClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -1633,32 +1242,12 @@ fun UserMessageBubble(
                     bottomStart = 20.dp,
                     bottomEnd = 4.dp
                 ),
-                color = if (isImagePrompt) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.primary,
                 shadowElevation = 2.dp
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    if (isImagePrompt) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onTertiary.copy(alpha = 0.8f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Image Request",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onTertiary.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-
                     // --- Render Attached Product Image in User Bubble ---
                     if (imageUrl != null && mediaType != "VIDEO") {
                         Surface(
@@ -1668,7 +1257,9 @@ fun UserMessageBubble(
                                 .fillMaxWidth()
                                 .padding(bottom = 8.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { onImageClick(imageUrl) }
+                                .clickable {
+                                    com.example.data.util.MediaUtils.openMediaFile(context, imageUrl, "image/*")
+                                }
                         ) {
                             Box(
                                 modifier = Modifier
@@ -1775,7 +1366,7 @@ fun UserMessageBubble(
                             lineHeight = 22.sp,
                             fontWeight = FontWeight.Normal
                         ),
-                        color = if (isImagePrompt) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
@@ -1805,17 +1396,14 @@ fun UserMessageBubble(
 }
 
 /**
- * Modern, Distinctive AI Advisor Message Bubble with Rich Markdown & Image Rendering
+ * Modern, Distinctive AI Advisor Message Bubble with Rich Markdown
  */
 @Composable
 fun AdvisorMessageBubble(
     text: String,
-    imageUrl: String?,
     timestamp: String,
     persona: AdvisorPersona,
     onCopy: () -> Unit,
-    onImageClick: (String) -> Unit = {},
-    onEditPrompt: (String) -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onRetry: () -> Unit = {},
     isSpeaking: Boolean = false,
@@ -1824,9 +1412,8 @@ fun AdvisorMessageBubble(
     modifier: Modifier = Modifier
 ) {
     var copiedState by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
-    val isErrorOrNotice = text.contains("⚠️ **Gemini") || text.contains("⚠️ **Connection Error") || text.contains("⚠️ **Image Generation Error")
+    val isErrorOrNotice = text.contains("⚠️ **Gemini") || text.contains("⚠️ **Connection Error")
     val isApiKeyRelated = isErrorOrNotice && (text.contains("API Key") || text.contains("API key"))
     val isRateLimit = isErrorOrNotice && (text.contains("429") || text.contains("Rate Limit") || text.contains("Quota"))
 
@@ -1855,11 +1442,6 @@ fun AdvisorMessageBubble(
                                 MaterialTheme.colorScheme.errorContainer,
                                 MaterialTheme.colorScheme.surfaceVariant
                             )
-                        } else if (imageUrl != null) {
-                            listOf(
-                                MaterialTheme.colorScheme.tertiaryContainer,
-                                MaterialTheme.colorScheme.surfaceVariant
-                            )
                         } else {
                             listOf(
                                 MaterialTheme.colorScheme.primaryContainer,
@@ -1876,17 +1458,9 @@ fun AdvisorMessageBubble(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = when {
-                    isErrorOrNotice -> Icons.Default.Warning
-                    imageUrl != null -> Icons.Default.Image
-                    else -> Icons.Default.AutoAwesome
-                },
+                imageVector = if (isErrorOrNotice) Icons.Default.Warning else Icons.Default.AutoAwesome,
                 contentDescription = "AI Assistant",
-                tint = when {
-                    isErrorOrNotice -> MaterialTheme.colorScheme.error
-                    imageUrl != null -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.primary
-                },
+                tint = if (isErrorOrNotice) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -1901,18 +1475,10 @@ fun AdvisorMessageBubble(
                     bottomStart = 20.dp,
                     bottomEnd = 20.dp
                 ),
-                color = when {
-                    isErrorOrNotice -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
-                    imageUrl != null -> MaterialTheme.colorScheme.surface
-                    else -> MaterialTheme.colorScheme.surface
-                },
+                color = if (isErrorOrNotice) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surface,
                 border = BorderStroke(
                     1.dp,
-                    when {
-                        isErrorOrNotice -> MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
-                        imageUrl != null -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
-                        else -> MaterialTheme.colorScheme.outlineVariant
-                    }
+                    if (isErrorOrNotice) MaterialTheme.colorScheme.error.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant
                 ),
                 shadowElevation = 1.dp,
                 modifier = Modifier.fillMaxWidth()
@@ -1926,12 +1492,12 @@ fun AdvisorMessageBubble(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = if (imageUrl != null) "🎨 Gemini 3.1 Flash Image" else "${persona.title} AI",
+                                text = "${persona.title} AI",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp
                                 ),
-                                color = if (imageUrl != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary
                             )
 
                             if (isSpeaking) {
@@ -1994,166 +1560,6 @@ fun AdvisorMessageBubble(
                                     tint = if (copiedState) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(15.dp)
                                 )
-                            }
-                        }
-                    }
-
-                    // --- Render Generated Image if Available ---
-                    if (imageUrl != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                                .clickable { onImageClick(imageUrl) }
-                                .testTag("generated_image_preview")
-                        ) {
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(if (imageUrl.startsWith("/")) File(imageUrl) else imageUrl)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "Generated AI Image",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(12.dp)),
-                                loading = {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(32.dp),
-                                            strokeWidth = 2.dp,
-                                            color = MaterialTheme.colorScheme.tertiary
-                                        )
-                                    }
-                                },
-                                error = {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .padding(16.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "⚠️ Image preview unavailable",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                            )
-
-                            // Zoom overlay badge on top-right of image
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Fullscreen,
-                                        contentDescription = "View Fullscreen",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Expand",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Action row for Image (Fullscreen / Edit / Save / Share)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedButton(
-                                onClick = { onImageClick(imageUrl) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("Expand", style = MaterialTheme.typography.labelSmall)
-                            }
-
-                            FilledTonalButton(
-                                onClick = { 
-                                    val extractedPrompt = if (text.contains("Prompt:")) {
-                                        text.substringAfter("Prompt:").substringBefore("\n").trim().removeSurrounding("*")
-                                    } else {
-                                        text.take(80)
-                                    }
-                                    onEditPrompt(extractedPrompt)
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("Edit", style = MaterialTheme.typography.labelSmall)
-                            }
-
-                            FilledTonalButton(
-                                onClick = {
-                                    val (success, msg) = com.example.data.util.MediaUtils.saveImageToGallery(context, imageUrl)
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = "Save to Gallery",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("Save", style = MaterialTheme.typography.labelSmall)
-                            }
-
-                            FilledTonalButton(
-                                onClick = { shareImage(context, imageUrl) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("Share", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -2223,209 +1629,6 @@ fun AdvisorMessageBubble(
                 modifier = Modifier.padding(start = 6.dp)
             )
         }
-    }
-}
-
-/**
- * Fullscreen Interactive Image Viewer Dialog
- */
-@Composable
-fun FullscreenImageViewerDialog(
-    imageUrl: String,
-    prompt: String,
-    onDismiss: () -> Unit,
-    onShare: (String) -> Unit,
-    onEditPrompt: ((String) -> Unit)? = null
-) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.95f),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-            ) {
-                // Top bar
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Generated AI Image (Gemini 2.5 Flash)",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.15f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // High-resolution image viewport
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(if (imageUrl.startsWith("/")) File(imageUrl) else imageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = prompt,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(16.dp)),
-                        loading = {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(color = Color.White)
-                            }
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Prompt description and action buttons
-                if (prompt.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.White.copy(alpha = 0.1f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = prompt,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.padding(12.dp),
-                            maxLines = 3
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(prompt))
-                            Toast.makeText(context, "Prompt copied to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copy")
-                    }
-
-                    if (onEditPrompt != null && prompt.isNotBlank()) {
-                        OutlinedButton(
-                            onClick = {
-                                onDismiss()
-                                onEditPrompt(prompt)
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Edit")
-                        }
-                    }
-
-                    FilledTonalButton(
-                        onClick = {
-                            val (success, msg) = com.example.data.util.MediaUtils.saveImageToGallery(context, imageUrl)
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color.White.copy(alpha = 0.2f),
-                            contentColor = Color.White
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(imageVector = Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save")
-                    }
-
-                    Button(
-                        onClick = { onShare(imageUrl) },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Share")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Share Image Intent Helper
- */
-private fun shareImage(context: Context, imagePath: String) {
-    try {
-        if (imagePath.startsWith("/")) {
-            val file = File(imagePath)
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/*"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(intent, "Share AI Generated Image"))
-        } else {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, "Generated with Gemini Image AI")
-            }
-            context.startActivity(Intent.createChooser(intent, "Share Image"))
-        }
-    } catch (e: Exception) {
-        Toast.makeText(context, "Unable to share image: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -2532,8 +1735,7 @@ fun buildAnnotatedStringWithBold(text: String, defaultColor: Color): AnnotatedSt
  */
 @Composable
 fun AdvisorTypingIndicator(
-    persona: AdvisorPersona,
-    isImageGenerating: Boolean = false
+    persona: AdvisorPersona
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "typing_dots")
 
@@ -2577,14 +1779,14 @@ fun AdvisorTypingIndicator(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(if (isImageGenerating) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                .background(MaterialTheme.colorScheme.primaryContainer)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = if (isImageGenerating) Icons.Default.Image else Icons.Default.AutoAwesome,
+                imageVector = Icons.Default.AutoAwesome,
                 contentDescription = null,
-                tint = if (isImageGenerating) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -2616,28 +1818,28 @@ fun AdvisorTypingIndicator(
                             .size(7.dp)
                             .scale(dot1Scale)
                             .clip(CircleShape)
-                            .background(if (isImageGenerating) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                     Box(
                         modifier = Modifier
                             .size(7.dp)
                             .scale(dot2Scale)
                             .clip(CircleShape)
-                            .background(if (isImageGenerating) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                     Box(
                         modifier = Modifier
                             .size(7.dp)
                             .scale(dot3Scale)
                             .clip(CircleShape)
-                            .background(if (isImageGenerating) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Text(
-                    text = if (isImageGenerating) "Gemini 2.5 Flash Image দিয়ে ছবি তৈরি হচ্ছে..." else "AI is thinking...",
+                    text = "AI is thinking...",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

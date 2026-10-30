@@ -31,14 +31,6 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-enum class VoiceCallState {
-    IDLE,
-    CONNECTING,   // Dialing / Connecting to AI
-    LISTENING,    // Mic listening to user
-    THINKING,     // AI is generating answer
-    SPEAKING,     // AI is talking aloud via TTS
-    MUTED         // Mic is muted
-}
 
 enum class MainAppTab(val title: String, val bnTitle: String) {
     AI_CHAT("AI Chat", "AI চ্যাট"),
@@ -78,17 +70,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     private val _apiKeyTesting = MutableStateFlow(false)
     val apiKeyTesting: StateFlow<Boolean> = _apiKeyTesting.asStateFlow()
-
-    // Pollinations API Key Management (for unrestricted image generation)
-    private val _customPollinationsApiKey = MutableStateFlow(prefs.getString("custom_pollinations_api_key", "") ?: "")
-    val customPollinationsApiKey: StateFlow<String> = _customPollinationsApiKey.asStateFlow()
-
-    private val _pollinationsApiKeyStatus = MutableStateFlow(Pair(true, "Active (Free Tier)"))
-    val pollinationsApiKeyStatus: StateFlow<Pair<Boolean, String>> = _pollinationsApiKeyStatus.asStateFlow()
-
-    private val _pollinationsTesting = MutableStateFlow(false)
-    val pollinationsTesting: StateFlow<Boolean> = _pollinationsTesting.asStateFlow()
-
     // Voice Assistant (Speech-To-Text & Text-To-Speech)
     private val voiceAssistant = com.example.data.util.VoiceAssistantManager(application)
     val isListening: StateFlow<Boolean> = voiceAssistant.isListening
@@ -138,202 +119,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         voiceAssistant.stopSpeaking()
     }
 
-    // --- 1v1 Real-Time AI Voice Call Engine ---
-    private val _voiceCallState = MutableStateFlow(VoiceCallState.IDLE)
-    val voiceCallState: StateFlow<VoiceCallState> = _voiceCallState.asStateFlow()
 
-    private val _isCallActive = MutableStateFlow(false)
-    val isCallActive: StateFlow<Boolean> = _isCallActive.asStateFlow()
-
-    private val _callDurationSeconds = MutableStateFlow(0)
-    val callDurationSeconds: StateFlow<Int> = _callDurationSeconds.asStateFlow()
-
-    private val _callUserSpeech = MutableStateFlow("")
-    val callUserSpeech: StateFlow<String> = _callUserSpeech.asStateFlow()
-
-    private val _callAiSpeech = MutableStateFlow("")
-    val callAiSpeech: StateFlow<String> = _callAiSpeech.asStateFlow()
-
-    private val _callTranscript = MutableStateFlow<List<Pair<String, String>>>(emptyList())
-    val callTranscript: StateFlow<List<Pair<String, String>>> = _callTranscript.asStateFlow()
-
-    private val _isCallMuted = MutableStateFlow(false)
-    val isCallMuted: StateFlow<Boolean> = _isCallMuted.asStateFlow()
-
-    val isCallSpeakerOn: StateFlow<Boolean> = voiceAssistant.isSpeakerOn
-
-    private var callTimerJob: Job? = null
-
-    fun startVoiceCall() {
-        if (_isCallActive.value) return
-        _isCallActive.value = true
-        _voiceCallState.value = VoiceCallState.CONNECTING
-        _callDurationSeconds.value = 0
-        _callUserSpeech.value = ""
-        _callAiSpeech.value = ""
-        _callTranscript.value = emptyList()
-        _isCallMuted.value = false
-
-        // Play phone connection audio cue
-        voiceAssistant.soundEffects.playCallConnecting()
-
-        // Start Call Duration Timer
-        callTimerJob?.cancel()
-        callTimerJob = viewModelScope.launch {
-            while (isActive && _isCallActive.value) {
-                delay(1000)
-                _callDurationSeconds.value += 1
-            }
-        }
-
-        // Register Utterance & Speech callbacks for continuous conversational loop
-        voiceAssistant.onTtsDoneCallback = {
-            if (_isCallActive.value) {
-                if (_isCallMuted.value) {
-                    _voiceCallState.value = VoiceCallState.MUTED
-                } else {
-                    listenForCallTurn()
-                }
-            }
-        }
-
-        // Watchdog & error recovery callback so call never hangs if speech synthesis fails
-        voiceAssistant.onTtsErrorCallback = {
-            if (_isCallActive.value) {
-                if (_isCallMuted.value) {
-                    _voiceCallState.value = VoiceCallState.MUTED
-                } else {
-                    listenForCallTurn()
-                }
-            }
-        }
-
-        voiceAssistant.onSpeechErrorCallback = { _, _ ->
-            if (_isCallActive.value && !_isCallMuted.value) {
-                // If speech recognition timed out or found no speech, re-arm listening smoothly
-                viewModelScope.launch {
-                    delay(600)
-                    if (_isCallActive.value && !_isCallMuted.value && _voiceCallState.value == VoiceCallState.LISTENING) {
-                        listenForCallTurn()
-                    }
-                }
-            }
-        }
-
-        // Initial Greeting from AI Voice Agent based on active persona
-        viewModelScope.launch {
-            delay(400)
-            if (!_isCallActive.value) return@launch
-
-            // Connected chime
-            voiceAssistant.soundEffects.playCallConnected()
-
-            val greeting = when (_selectedPersona.value) {
-                AdvisorPersona.GENERAL -> "আসসালামু আলাইকুম! আমি আপনার গার্মেন্টস ব্যবসার এআই ভয়েস এজেন্ট। বলুন, কীভাবে সাহায্য করতে পারি?"
-                AdvisorPersona.CREATIVE -> "হ্যালো! আমি আপনার ক্রিয়েটিভ এআই সহকারী। আজ কী ডিজাইন বা আইডিয়া নিয়ে কথা বলবেন?"
-                AdvisorPersona.CODING -> "হ্যালো! আমি আপনার টেক ও কোডিং সহকারী। বলুন, কী বিষয়ে জানতে চান?"
-                AdvisorPersona.LEARNING -> "হ্যালো! আমি আপনার লার্নিং টিউটর। আজ কী নিয়ে শিখতে চান বলুন?"
-            }
-
-            _callAiSpeech.value = greeting
-            _callTranscript.value = listOf("AI" to greeting)
-            _voiceCallState.value = VoiceCallState.SPEAKING
-            voiceAssistant.speak(greeting)
-        }
-    }
-
-    private fun listenForCallTurn() {
-        if (!_isCallActive.value || _isCallMuted.value) return
-        _voiceCallState.value = VoiceCallState.LISTENING
-        voiceAssistant.startListening { recognizedText ->
-            if (!_isCallActive.value) return@startListening
-            val speech = recognizedText.trim()
-            if (speech.isNotBlank()) {
-                _callUserSpeech.value = speech
-                _callTranscript.value = _callTranscript.value + ("User" to speech)
-                processCallUserSpeech(speech)
-            } else {
-                if (_isCallActive.value && !_isCallMuted.value) {
-                    listenForCallTurn()
-                }
-            }
-        }
-    }
-
-    private fun processCallUserSpeech(userSpeech: String) {
-        if (!_isCallActive.value) return
-        _voiceCallState.value = VoiceCallState.THINKING
-
-        viewModelScope.launch {
-            try {
-                val currentHistory = chatMessages.value
-                val (activeSessionId, aiReply) = repository.sendVoiceCallTurn(
-                    sessionId = _currentSessionId.value,
-                    persona = _selectedPersona.value,
-                    userSpeech = userSpeech,
-                    history = currentHistory
-                )
-                if (_currentSessionId.value == null) {
-                    _currentSessionId.value = activeSessionId
-                }
-
-                if (!_isCallActive.value) return@launch
-
-                _callAiSpeech.value = aiReply
-                _callTranscript.value = _callTranscript.value + ("AI" to aiReply)
-                _voiceCallState.value = VoiceCallState.SPEAKING
-                voiceAssistant.speak(aiReply)
-            } catch (e: Exception) {
-                Log.e("AdvisorViewModel", "Failed voice call turn: ${e.message}", e)
-                if (_isCallActive.value) {
-                    val fallback = "দুঃখিত, সংযোগে কিছুটা বিঘ্ন ঘটেছে। আপনার কথাটি আবার বলবেন?"
-                    _callAiSpeech.value = fallback
-                    _voiceCallState.value = VoiceCallState.SPEAKING
-                    voiceAssistant.speak(fallback)
-                }
-            }
-        }
-    }
-
-    fun interruptAiAndSpeak() {
-        if (!_isCallActive.value) return
-        voiceAssistant.stopSpeaking()
-        if (_isCallMuted.value) {
-            _isCallMuted.value = false
-        }
-        listenForCallTurn()
-    }
-
-    fun toggleCallMute() {
-        if (!_isCallActive.value) return
-        val nextMuted = !_isCallMuted.value
-        _isCallMuted.value = nextMuted
-        if (nextMuted) {
-            voiceAssistant.stopListening()
-            _voiceCallState.value = VoiceCallState.MUTED
-        } else {
-            if (_voiceCallState.value == VoiceCallState.MUTED) {
-                listenForCallTurn()
-            }
-        }
-    }
-
-    fun toggleCallSpeaker() {
-        voiceAssistant.toggleSpeaker()
-    }
-
-    fun endVoiceCall() {
-        _isCallActive.value = false
-        _voiceCallState.value = VoiceCallState.IDLE
-        callTimerJob?.cancel()
-        callTimerJob = null
-        voiceAssistant.soundEffects.playCallEnded()
-        voiceAssistant.stopSpeaking()
-        voiceAssistant.stopListening()
-        voiceAssistant.onTtsDoneCallback = null
-        voiceAssistant.onTtsErrorCallback = null
-        voiceAssistant.onSpeechErrorCallback = null
-    }
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -342,12 +128,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         if (savedKey.isNotBlank()) {
             repository.setCustomApiKey(savedKey)
         }
-        val savedPollinationsKey = prefs.getString("custom_pollinations_api_key", "") ?: ""
-        if (savedPollinationsKey.isNotBlank()) {
-            repository.setCustomPollinationsApiKey(savedPollinationsKey)
-        }
         updateApiKeyStatus()
-        updatePollinationsApiKeyStatus()
         loadInitialProfile()
         seedSampleDataIfEmpty()
         autoRestoreFromCloudIfEmpty()
@@ -377,10 +158,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         _apiKeyStatus.value = repository.getApiKeyInfo()
     }
 
-    private fun updatePollinationsApiKeyStatus() {
-        _pollinationsApiKeyStatus.value = repository.getPollinationsApiKeyInfo()
-    }
-
     fun saveCustomApiKey(key: String) {
         val trimmed = key.trim()
         prefs.edit().putString("custom_gemini_api_key", trimmed).apply()
@@ -406,37 +183,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun savePollinationsApiKey(key: String) {
-        val trimmed = key.trim()
-        prefs.edit().putString("custom_pollinations_api_key", trimmed).apply()
-        _customPollinationsApiKey.value = trimmed
-        repository.setCustomPollinationsApiKey(trimmed.ifBlank { null })
-        updatePollinationsApiKeyStatus()
-    }
 
-    fun clearPollinationsApiKey() {
-        prefs.edit().remove("custom_pollinations_api_key").apply()
-        _customPollinationsApiKey.value = ""
-        repository.setCustomPollinationsApiKey(null)
-        updatePollinationsApiKeyStatus()
-    }
-
-    fun testPollinationsApiKey(keyToTest: String, onComplete: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            _pollinationsTesting.value = true
-            val effective = if (keyToTest.isNotBlank()) keyToTest else repository.getPollinationsApiKey()
-            val result = repository.validatePollinationsApiKey(effective)
-            _pollinationsTesting.value = false
-            onComplete(result.first, result.second)
-        }
-    }
-
-    fun quickGenerateImage(prompt: String) {
-        if (prompt.isBlank()) return
-        _selectedMainTab.value = MainAppTab.AI_CHAT
-        _isImageMode.value = true
-        sendChatMessage(prompt = prompt, forceImageMode = true)
-    }
 
     // Navigation
     private val _selectedMainTab = MutableStateFlow(MainAppTab.AI_CHAT)
@@ -817,12 +564,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private val _isImageMode = MutableStateFlow(false)
-    val isImageMode: StateFlow<Boolean> = _isImageMode.asStateFlow()
-
-    private val _selectedAspectRatio = MutableStateFlow("1:1")
-    val selectedAspectRatio: StateFlow<String> = _selectedAspectRatio.asStateFlow()
-
     data class AttachedMediaInfo(
         val uriString: String,
         val localFilePath: String,
@@ -871,17 +612,8 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         _attachedMedia.value = null
     }
 
-    fun toggleImageMode(enabled: Boolean? = null) {
-        _isImageMode.value = enabled ?: !_isImageMode.value
-    }
-
-    fun setSelectedAspectRatio(ratio: String) {
-        _selectedAspectRatio.value = ratio
-    }
-
     fun sendChatMessage(
         prompt: String? = null,
-        forceImageMode: Boolean? = null,
         isVoiceQuery: Boolean = false
     ) {
         val media = _attachedMedia.value
@@ -893,8 +625,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         }
         _attachedMedia.value = null
 
-        val effectiveImageMode = forceImageMode ?: _isImageMode.value
-
         viewModelScope.launch {
             _isChatLoading.value = true
             try {
@@ -904,8 +634,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
                     persona = _selectedPersona.value,
                     userPrompt = textToSend,
                     history = currentHistory,
-                    isImageMode = effectiveImageMode,
-                    aspectRatio = _selectedAspectRatio.value,
                     attachedFilePath = media?.localFilePath,
                     attachedMimeType = media?.mimeType,
                     attachedFileName = media?.fileName,
@@ -928,8 +656,8 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun retryMessage(prompt: String, isImagePrompt: Boolean = false) {
-        sendChatMessage(prompt = prompt, forceImageMode = if (isImagePrompt) true else null)
+    fun retryMessage(prompt: String) {
+        sendChatMessage(prompt = prompt)
     }
 
     fun clearCurrentChat() {
@@ -1249,7 +977,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
-        endVoiceCall()
         voiceAssistant.shutdown()
     }
 }

@@ -106,13 +106,6 @@ fun ChatHistoryDrawerContent(
     onSaveApiKey: (String) -> Unit = {},
     onClearApiKey: () -> Unit = {},
     onTestApiKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
-    pollinationsApiKeyStatus: Pair<Boolean, String> = Pair(true, "Active (Free Tier)"),
-    customPollinationsApiKey: String = "",
-    isPollinationsTesting: Boolean = false,
-    onSavePollinationsApiKey: (String) -> Unit = {},
-    onClearPollinationsApiKey: () -> Unit = {},
-    onTestPollinationsApiKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
-    onQuickImagePrompt: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }

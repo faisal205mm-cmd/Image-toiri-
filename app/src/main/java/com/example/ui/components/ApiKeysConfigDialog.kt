@@ -40,14 +40,7 @@ fun ApiKeysConfigDialog(
     isGeminiTesting: Boolean,
     onSaveGeminiKey: (String) -> Unit,
     onClearGeminiKey: () -> Unit,
-    onTestGeminiKey: (String, (Boolean, String) -> Unit) -> Unit,
-    pollinationsApiKeyStatus: Pair<Boolean, String> = Pair(true, ""),
-    customPollinationsKey: String = "",
-    isPollinationsTesting: Boolean = false,
-    onSavePollinationsKey: (String) -> Unit = {},
-    onClearPollinationsKey: () -> Unit = {},
-    onTestPollinationsKey: (String, (Boolean, String) -> Unit) -> Unit = { _, _ -> },
-    onQuickPromptSelected: ((String) -> Unit)? = null
+    onTestGeminiKey: (String, (Boolean, String) -> Unit) -> Unit
 ) {
     Dialog(
         onDismissRequest = onDismiss,

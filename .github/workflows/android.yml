@@ -142,7 +142,8 @@ jobs:
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 1
+          retention-days: 30
+          overwrite: true
           if-no-files-found: warn
 
       - name: Upload Release Artifacts
@@ -154,7 +155,8 @@ jobs:
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
-          retention-days: 1
+          retention-days: 30
+          overwrite: true
           if-no-files-found: ignore
 
       - name: Upload Test Reports
@@ -164,7 +166,8 @@ jobs:
         with:
           name: unit-test-reports
           path: app/build/reports/tests/
-          retention-days: 1
+          retention-days: 14
+          overwrite: true
           if-no-files-found: ignore
 
       - name: Create GitHub Release on Tag

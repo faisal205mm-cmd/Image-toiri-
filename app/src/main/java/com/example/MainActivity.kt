@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -168,8 +169,16 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
     ) {
         Scaffold(
             topBar = {
-                CenterAlignedTopAppBar(
-                    navigationIcon = {
+                if (selectedMainTab == MainAppTab.AI_CHAT) {
+                    // Header row right at the very top of the screen with no blank space above
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White)
+                            .padding(horizontal = 4.dp, vertical = 0.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         IconButton(
                             onClick = {
                                 scope.launch {
@@ -184,119 +193,162 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                 tint = Color(0xFF1E293B)
                             )
                         }
-                    },
-                    title = {
-                        if (selectedMainTab != MainAppTab.AI_CHAT) {
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    showApiKeysDialog = true
+                                },
+                                modifier = Modifier.testTag("top_bar_api_key_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VpnKey,
+                                    contentDescription = "API Key",
+                                    tint = Color(0xFF00C853)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.startNewSession() },
+                                modifier = Modifier.testTag("top_bar_new_chat_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Chat",
+                                    tint = Color(0xFF00C853)
+                                )
+                            }
+
+                            // 3-dot overflow menu
+                            Box {
+                                IconButton(
+                                    onClick = { showTopMoreMenu = true },
+                                    modifier = Modifier.testTag("top_bar_more_menu_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options menu",
+                                        tint = Color(0xFF1E293B)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showTopMoreMenu,
+                                    onDismissRequest = { showTopMoreMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    "API Keys Settings",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    "Gemini API Key",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.VpnKey,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00C853)
+                                            )
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            showApiKeysDialog = true
+                                        },
+                                        modifier = Modifier.testTag("menu_api_keys_item")
+                                    )
+
+                                    HorizontalDivider()
+
+                                    DropdownMenuItem(
+                                        text = { Text("Start New Chat") },
+                                        leadingIcon = {
+                                            Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Color(0xFF00C853))
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            viewModel.startNewSession()
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Clear Current Chat") },
+                                        leadingIcon = {
+                                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            viewModel.clearCurrentChat()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    CenterAlignedTopAppBar(
+                        navigationIcon = {
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                    }
+                                },
+                                modifier = Modifier.testTag("open_history_drawer_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "Chat History",
+                                    tint = Color(0xFF1E293B)
+                                )
+                            }
+                        },
+                        title = {
                             Text(
                                 text = if (selectedMainTab == MainAppTab.NEW_SALE) "মাসিক ফাইন্যান্স (Sale)" else "Firebase Firestore",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFF1E293B)
                             )
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    if (drawerState.isClosed) drawerState.open() else drawerState.close()
-                                }
-                            },
-                            modifier = Modifier.testTag("top_bar_api_key_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VpnKey,
-                                contentDescription = "API Key",
-                                tint = Color(0xFF00C853)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.startNewSession() },
-                            modifier = Modifier.testTag("top_bar_new_chat_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "New Chat",
-                                tint = Color(0xFF00C853)
-                            )
-                        }
-
-                        // 3-dot overflow menu
-                        Box {
+                        },
+                        actions = {
                             IconButton(
-                                onClick = { showTopMoreMenu = true },
-                                modifier = Modifier.testTag("top_bar_more_menu_button")
+                                onClick = {
+                                    showApiKeysDialog = true
+                                },
+                                modifier = Modifier.testTag("top_bar_api_key_button")
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options menu",
-                                    tint = Color(0xFF1E293B)
+                                    imageVector = Icons.Default.VpnKey,
+                                    contentDescription = "API Key",
+                                    tint = Color(0xFF00C853)
                                 )
                             }
 
-                            DropdownMenu(
-                                expanded = showTopMoreMenu,
-                                onDismissRequest = { showTopMoreMenu = false }
+                            IconButton(
+                                onClick = { viewModel.startNewSession() },
+                                modifier = Modifier.testTag("top_bar_new_chat_button")
                             ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(
-                                                "API Keys Settings",
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Text(
-                                                "Gemini API Key",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.VpnKey,
-                                            contentDescription = null,
-                                            tint = Color(0xFF00C853)
-                                        )
-                                    },
-                                    onClick = {
-                                        showTopMoreMenu = false
-                                        showApiKeysDialog = true
-                                    },
-                                    modifier = Modifier.testTag("menu_api_keys_item")
-                                )
-
-                                HorizontalDivider()
-
-                                DropdownMenuItem(
-                                    text = { Text("Start New Chat") },
-                                    leadingIcon = {
-                                        Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Color(0xFF00C853))
-                                    },
-                                    onClick = {
-                                        showTopMoreMenu = false
-                                        viewModel.startNewSession()
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("Clear Current Chat") },
-                                    leadingIcon = {
-                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showTopMoreMenu = false
-                                        viewModel.clearCurrentChat()
-                                    }
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Chat",
+                                    tint = Color(0xFF00C853)
                                 )
                             }
-                        }
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = Color.White
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = Color.White
+                        )
                     )
-                )
+                }
             },
             bottomBar = {
                 Surface(
@@ -307,7 +359,8 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 8.dp),
+                            .navigationBarsPadding()
+                            .padding(top = 10.dp, bottom = 24.dp),
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -413,7 +466,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "ক্যাশনরেশন",
+                                text = "ক্যাশনরোলেন",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (isDb) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 12.sp

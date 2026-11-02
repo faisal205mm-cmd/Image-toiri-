@@ -265,14 +265,85 @@ fun AdvisorChatScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
+            .padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 4.dp)
     ) {
-        // Futuristic Dark Obsidian Card containing the entire chat view!
+        // Horizontal Persona Chips Capsule Bar directly under top bar (eliminating top blank space)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF04141B),
+            border = BorderStroke(1.2.dp, Color(0xFF00E676).copy(alpha = 0.5f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(AdvisorPersona.values()) { persona ->
+                        val isSelected = persona == selectedPersona
+                        val chipBg = if (isSelected) Color(0xFF00A859) else Color(0xFF0A1B22)
+                        val contentColor = Color.White
+                        val border = if (isSelected) {
+                            BorderStroke(1.5.dp, Color(0xFF00E676))
+                        } else {
+                            BorderStroke(1.dp, Color(0xFF1B3640))
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = chipBg,
+                            border = border,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { viewModel.selectPersona(persona) }
+                                .testTag("mode_chip_${persona.name.lowercase()}")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                val icon: ImageVector = when (persona) {
+                                    AdvisorPersona.GENERAL -> Icons.Default.AutoAwesome
+                                    AdvisorPersona.CREATIVE -> Icons.Default.Palette
+                                    AdvisorPersona.CODING -> Icons.Default.Code
+                                    AdvisorPersona.LEARNING -> Icons.Default.School
+                                }
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = persona.title,
+                                    tint = contentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = persona.title,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    ),
+                                    color = contentColor
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Futuristic Dark Obsidian Card containing the chat view
         Card(
             shape = RoundedCornerShape(26.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF04141B)),
             border = BorderStroke(1.2.dp, Color(0xFF00E676).copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Layer 0: Decorative glowing emerald circles & arcs matching the screenshot!
@@ -336,72 +407,12 @@ fun AdvisorChatScreen(
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // Horizontal Persona Chips Row inside the dark card
-                    Row(
+                    // Messages Thread
+                    Box(
                         modifier = Modifier
+                            .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(AdvisorPersona.values()) { persona ->
-                                val isSelected = persona == selectedPersona
-                                val chipBg = if (isSelected) Color(0xFF003816) else Color(0xFF0F1E24)
-                                val contentColor = Color.White
-                                val border = if (isSelected) {
-                                    BorderStroke(1.5.dp, Color(0xFF00E676))
-                                } else {
-                                    BorderStroke(1.dp, Color(0xFF1E3A44))
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = chipBg,
-                                    border = border,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable { viewModel.selectPersona(persona) }
-                                        .testTag("mode_chip_${persona.name.lowercase()}")
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                    ) {
-                                        val icon: ImageVector = when (persona) {
-                                            AdvisorPersona.GENERAL -> Icons.Default.AutoAwesome
-                                            AdvisorPersona.CREATIVE -> Icons.Default.Palette
-                                            AdvisorPersona.CODING -> Icons.Default.Code
-                                            AdvisorPersona.LEARNING -> Icons.Default.School
-                                        }
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = persona.title,
-                                            tint = contentColor,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = persona.title,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
-                                            ),
-                                            color = contentColor
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-        // Messages Thread
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
             if (chatMessages.isEmpty()) {
                 // Empty state greeting with topic suggestions & photo/video upload buttons
                 EmptyChatGreeting(
@@ -945,12 +956,12 @@ fun AdvisorChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
                 ) {
                     // Left Green Circular Add Button (+)
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(50.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00C853))
                             .clickable { showMediaAttachMenu = true }
@@ -961,7 +972,7 @@ fun AdvisorChatScreen(
                             imageVector = if (attachedMedia != null) Icons.Default.Check else Icons.Default.Add,
                             contentDescription = "Add Option",
                             tint = Color.White,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
@@ -988,8 +999,8 @@ fun AdvisorChatScreen(
                                     .padding(end = 4.dp)
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF142833))
-                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), CircleShape)
+                                    .background(Color(0xFF102630))
+                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.45f), CircleShape)
                                     .clickable { onVoiceMicClicked() }
                                     .testTag("voice_mic_button"),
                                 contentAlignment = Alignment.Center
@@ -1009,9 +1020,9 @@ fun AdvisorChatScreen(
                         maxLines = 4,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFF00E676),
-                            unfocusedBorderColor = Color(0xFF00E676).copy(alpha = 0.6f),
-                            focusedContainerColor = Color(0xFF09161D),
-                            unfocusedContainerColor = Color(0xFF09161D),
+                            unfocusedBorderColor = Color(0xFF00E676).copy(alpha = 0.5f),
+                            focusedContainerColor = Color(0xFF071B21),
+                            unfocusedContainerColor = Color(0xFF071B21),
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
                             cursorColor = Color(0xFF00E676)
@@ -1023,7 +1034,7 @@ fun AdvisorChatScreen(
                     // Right Green Circular Send Button (>)
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(50.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00C853))
                             .clickable { viewModel.sendChatMessage() }
@@ -1034,14 +1045,14 @@ fun AdvisorChatScreen(
                             CircularProgressIndicator(
                                 color = Color.White,
                                 strokeWidth = 2.dp,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send Message",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -1101,17 +1112,21 @@ fun EmptyChatGreeting(
                         )
                 )
 
-                // Central Gradient Badge: Green (#00C853) to Lime (#A3E635)
+                // Central Gradient Badge: Green (#00C853) to Lime (#CDDC39)
                 Box(
                     modifier = Modifier
-                        .size(136.dp)
+                        .size(138.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
                                     Color(0xFF00C853),
-                                    Color(0xFFA3E635)
-                                )
+                                    Color(0xFF00E676),
+                                    Color(0xFFAEEA00),
+                                    Color(0xFFCDDC39)
+                                ),
+                                start = Offset(0f, 138f),
+                                end = Offset(138f, 0f)
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -1120,24 +1135,24 @@ fun EmptyChatGreeting(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = "AI Sparkle",
                         tint = Color.White,
-                        modifier = Modifier.size(70.dp)
+                        modifier = Modifier.size(68.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Greeting Headline from Screenshot: কিভাবে আপনাকে সাহায্য করতে পারি?
             Text(
                 text = "কিভাবে আপনাকে সাহায্য করতে পারি?",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
+                    fontSize = 21.sp
                 ),
                 color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Greeting Subtitle from Screenshot: আপনার প্রশ্ন লিখুন, আমি আছি আপনার সাথে
             Text(
@@ -1145,7 +1160,7 @@ fun EmptyChatGreeting(
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontSize = 14.sp
                 ),
-                color = Color(0xFFCBD5E1)
+                color = Color(0xFF94A3B8)
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -1153,10 +1168,10 @@ fun EmptyChatGreeting(
             // Rounded Green Indicator Accent Bar
             Box(
                 modifier = Modifier
-                    .width(42.dp)
+                    .width(44.dp)
                     .height(3.5.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF00C853))
+                    .background(Color(0xFF00E676))
             )
         }
     }

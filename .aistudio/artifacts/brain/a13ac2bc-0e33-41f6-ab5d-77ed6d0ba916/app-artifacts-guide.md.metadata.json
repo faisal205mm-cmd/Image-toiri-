@@ -1,5 +1,5 @@
 {
-  "summary":  "App Artifacts and APK Download Guide with direct links and instructions for GitHub Actions build artifacts and local APK binaries.",
-  "updatedAt":  "2026-10-31T06:30:53.067636030Z",
-  "userFacing":  true
+  "summary": "Comprehensive guide detailing the successfully generated debug APK (app-debug.apk), build output paths, Firebase Cloud Firestore integration status, and instructions for downloading and running GitHub Actions CI/CD workflows.",
+  "updatedAt": "2026-11-03T18:04:12.805800536Z",
+  "userFacing": true
 }

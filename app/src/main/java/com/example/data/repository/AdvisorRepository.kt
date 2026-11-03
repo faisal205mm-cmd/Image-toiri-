@@ -423,7 +423,12 @@ No active Gemini API key was detected. To get real-time AI responses:
 
         var lastChatException: Exception? = null
         var chatResponseText: String? = null
-        val chatModels = listOf(GeminiClient.MODEL_FLASH, GeminiClient.MODEL_FLASH_LITE)
+        val chatModels = listOf(
+            GeminiClient.MODEL_FLASH,
+            GeminiClient.MODEL_FLASH_LITE,
+            "gemini-3.5-flash",
+            GeminiClient.MODEL_PRO
+        )
 
         for (m in chatModels) {
             for (attempt in 1..2) {

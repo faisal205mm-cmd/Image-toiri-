@@ -21,6 +21,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import android.app.Activity
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.data.firebase.FirebaseAuthManager
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
@@ -85,6 +93,10 @@ fun FirebaseDatabaseScreen(
     val syncStatus by viewModel.firestoreSyncStatus.collectAsStateWithLifecycle()
     var isSyncing by remember { mutableStateOf(false) }
 
+    val coroutineScope = rememberCoroutineScope()
+    val currentUser by FirebaseAuthManager.currentUser.collectAsStateWithLifecycle()
+    var isAuthLoading by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -93,7 +105,168 @@ fun FirebaseDatabaseScreen(
         contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // --- Header / Overview Card ---
+        // --- 1. Cloud Authentication & Security Card ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (currentUser != null)
+                        Color(0xFFF0FDF4)
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (currentUser != null) Color(0xFF22C55E).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("firestore_auth_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(if (currentUser != null) Color(0xFF16A34A) else MaterialTheme.colorScheme.secondary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (currentUser != null) Icons.Default.Security else Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (currentUser != null) "ক্লাউড সিকিউরিটি সক্রিয়" else "ক্লাউড ডেটা সুরক্ষা",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (currentUser != null)
+                                        (currentUser?.email ?: currentUser?.displayName ?: "Google Account Verified")
+                                    else
+                                        "ক্লাউডে ব্যক্তিগত ডেটা সুরক্ষার জন্য সাইন-ইন করুন",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (currentUser != null) Color(0xFF15803D) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (currentUser != null) {
+                            Surface(
+                                color = Color(0xFFDCFCE7),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                            ) {
+                                Text(
+                                    text = "সুরক্ষিত",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF166534),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (currentUser == null) {
+                        Button(
+                            onClick = {
+                                (context as? Activity)?.let { activity ->
+                                    isAuthLoading = true
+                                    FirebaseAuthManager.signInWithGoogle(
+                                        activity = activity,
+                                        scope = coroutineScope,
+                                        onSuccess = {
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Google দিয়ে সফলভাবে সাইন ইন হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onError = { error ->
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Google Sign-In: $error", Toast.LENGTH_LONG).show()
+                                        },
+                                        onCancelled = {
+                                            isAuthLoading = false
+                                        }
+                                    )
+                                }
+                            },
+                            enabled = !isAuthLoading,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00C853),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_google_signin_firestore")
+                        ) {
+                            if (isAuthLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("লগইন হচ্ছে...", fontSize = 13.sp)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Google দিয়ে সাইন-ইন করুন", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "UID: ${currentUser?.uid?.take(12)}...",
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            TextButton(
+                                onClick = {
+                                    FirebaseAuthManager.signOut(context, coroutineScope) {
+                                        Toast.makeText(context, "সাইন আউট সম্পন্ন হয়েছে", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.testTag("btn_google_signout_firestore")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("সাইন আউট", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 2. Header / Overview Card ---
         item {
             Card(
                 colors = CardDefaults.cardColors(
@@ -173,7 +346,9 @@ fun FirebaseDatabaseScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Firestore Config Specs
-                    FirestoreConfigRow(label = "Database Engine", value = "Google Cloud Firestore")
+                    FirestoreConfigRow(label = "Database Engine", value = "Cloud Firestore (Enterprise)")
+                    FirestoreConfigRow(label = "Database ID", value = "ai-studio-android-threadcr-...-a13ac2bc")
+                    FirestoreConfigRow(label = "Security Mode", value = if (currentUser != null) "User Isolated (Authenticated)" else "Protected (Rule Enforced)")
                     FirestoreConfigRow(label = "Collection Name", value = SaleFirestoreManager.COLLECTION_SALES)
                     FirestoreConfigRow(label = "Offline Cache", value = "Enabled (Local Persistence)")
                     FirestoreConfigRow(label = "Sync Status", value = syncStatus ?: "Active")

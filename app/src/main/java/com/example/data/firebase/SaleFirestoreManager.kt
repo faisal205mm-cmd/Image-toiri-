@@ -1,24 +1,30 @@
 package com.example.data.firebase
 
+import android.content.Context
 import android.util.Log
+import com.example.R
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.db.SaleRecordEntity
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
- * Manages Firebase Firestore operations for storing and syncing sale records.
+ * Manages Firebase Firestore operations for storing and syncing sale records and monthly finances.
+ * Uses named Firestore database instance and scopes operations to authenticated user ID.
  */
 class SaleFirestoreManager(
-    private val firestoreInstance: FirebaseFirestore? = null
+    private val firestoreInstance: FirebaseFirestore? = null,
+    private val databaseId: String? = null
 ) {
     companion object {
         private const val TAG = "SaleFirestoreManager"
@@ -28,21 +34,28 @@ class SaleFirestoreManager(
         @Volatile
         private var INSTANCE: SaleFirestoreManager? = null
 
-        fun getInstance(): SaleFirestoreManager {
+        fun getInstance(context: Context? = null): SaleFirestoreManager {
+            val dbId = context?.getString(R.string.firestore_database_id)
+                ?: "ai-studio-android-threadcr-a13ac2bc-0e33-41f6-ab5d-77ed6d0ba916"
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: SaleFirestoreManager().also { INSTANCE = it }
+                INSTANCE ?: SaleFirestoreManager(databaseId = dbId).also { INSTANCE = it }
             }
         }
     }
 
     /**
-     * Lazily initialized FirebaseFirestore instance with local cache persistence.
+     * Lazily initialized FirebaseFirestore instance targeting named database with local cache.
      */
     val firestore: FirebaseFirestore by lazy {
         firestoreInstance ?: try {
-            FirebaseFirestore.getInstance().apply {
+            val targetDb = if (!databaseId.isNullOrBlank()) {
+                databaseId
+            } else {
+                "ai-studio-android-threadcr-a13ac2bc-0e33-41f6-ab5d-77ed6d0ba916"
+            }
+            FirebaseFirestore.getInstance(targetDb).apply {
                 try {
-                    val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder().build()
+                    val cacheSettings = PersistentCacheSettings.newBuilder().build()
                     val settings = FirebaseFirestoreSettings.Builder()
                         .setLocalCacheSettings(cacheSettings)
                         .build()
@@ -64,10 +77,16 @@ class SaleFirestoreManager(
         get() = firestore.collection(COLLECTION_SALES)
 
     /**
-     * Converts a SaleRecordEntity into a Firestore-compatible Map.
+     * Reference to the 'monthly_finances' collection in Firestore.
+     */
+    val financesCollection: CollectionReference
+        get() = firestore.collection(COLLECTION_MONTHLY_FINANCES)
+
+    /**
+     * Converts a SaleRecordEntity into a Firestore-compatible Map with userId.
      */
     fun toFirestoreDocument(sale: SaleRecordEntity): Map<String, Any> {
-        return hashMapOf(
+        val map = hashMapOf<String, Any>(
             "id" to sale.id,
             "invoiceNumber" to sale.invoiceNumber,
             "customerName" to sale.customerName,
@@ -85,11 +104,38 @@ class SaleFirestoreManager(
             "createdAtFormatted" to java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(sale.timestamp)),
             "syncedAt" to System.currentTimeMillis()
         )
+        val uid = Firebase.auth.currentUser?.uid
+        if (!uid.isNullOrBlank()) {
+            map["userId"] = uid
+        }
+        return map
+    }
+
+    /**
+     * Converts a MonthlyFinanceEntity into a Firestore Map with userId.
+     */
+    fun toFirestoreFinanceDocument(finance: MonthlyFinanceEntity): Map<String, Any> {
+        val map = hashMapOf<String, Any>(
+            "id" to finance.id,
+            "type" to finance.type,
+            "title" to finance.title,
+            "amount" to finance.amount,
+            "category" to finance.category,
+            "monthYear" to finance.monthYear,
+            "note" to finance.note,
+            "timestamp" to finance.timestamp,
+            "createdAtFormatted" to java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(finance.timestamp)),
+            "syncedAt" to System.currentTimeMillis()
+        )
+        val uid = Firebase.auth.currentUser?.uid
+        if (!uid.isNullOrBlank()) {
+            map["userId"] = uid
+        }
+        return map
     }
 
     /**
      * Stores a sale record in Firebase Firestore under document ID = invoiceNumber.
-     * Uses SetOptions.merge() so existing records are updated rather than overwritten.
      */
     fun saveSale(
         sale: SaleRecordEntity,
@@ -117,9 +163,6 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Asynchronously stores a sale record using coroutines.
-     */
     suspend fun saveSaleAsync(sale: SaleRecordEntity): Result<String> {
         return suspendCancellableCoroutine { continuation ->
             saveSale(sale) { success, errorMsg ->
@@ -134,9 +177,6 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Deletes a sale record from Firestore by invoice number.
-     */
     fun deleteSale(
         invoiceNumber: String,
         onComplete: ((success: Boolean) -> Unit)? = null
@@ -158,12 +198,15 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Observes real-time sales records from Firestore as a Flow.
-     */
     fun observeFirestoreSales(): Flow<List<Map<String, Any>>> = callbackFlow {
+        val uid = Firebase.auth.currentUser?.uid
+        val query = if (!uid.isNullOrBlank()) {
+            salesCollection.whereEqualTo("userId", uid)
+        } else {
+            salesCollection
+        }
         val listenerRegistration = try {
-            salesCollection.addSnapshotListener { snapshot, error ->
+            query.addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.w(TAG, "Firestore snapshot listener error: ${error.message}")
                     return@addSnapshotListener
@@ -181,24 +224,6 @@ class SaleFirestoreManager(
         awaitClose {
             listenerRegistration?.remove()
         }
-    }
-
-    val financesCollection: CollectionReference
-        get() = firestore.collection(COLLECTION_MONTHLY_FINANCES)
-
-    fun toFirestoreFinanceDocument(finance: MonthlyFinanceEntity): Map<String, Any> {
-        return hashMapOf(
-            "id" to finance.id,
-            "type" to finance.type,
-            "title" to finance.title,
-            "amount" to finance.amount,
-            "category" to finance.category,
-            "monthYear" to finance.monthYear,
-            "note" to finance.note,
-            "timestamp" to finance.timestamp,
-            "createdAtFormatted" to java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(finance.timestamp)),
-            "syncedAt" to System.currentTimeMillis()
-        )
     }
 
     fun saveMonthlyFinance(
@@ -224,6 +249,21 @@ class SaleFirestoreManager(
         }
     }
 
+    suspend fun saveMonthlyFinanceAsync(finance: MonthlyFinanceEntity): Result<String> {
+        return suspendCancellableCoroutine { continuation ->
+            saveMonthlyFinance(finance) { success, errorMsg ->
+                if (continuation.isActive) {
+                    if (success) {
+                        val docId = if (finance.id != 0L) "FIN_${finance.type}_${finance.id}" else "FIN_${finance.type}_${finance.timestamp}"
+                        continuation.resume(Result.success(docId))
+                    } else {
+                        continuation.resume(Result.failure(Exception(errorMsg ?: "Failed to save monthly finance")))
+                    }
+                }
+            }
+        }
+    }
+
     fun deleteMonthlyFinance(
         id: Long,
         type: String,
@@ -240,8 +280,14 @@ class SaleFirestoreManager(
     }
 
     fun observeFirestoreFinances(): Flow<List<Map<String, Any>>> = callbackFlow {
+        val uid = Firebase.auth.currentUser?.uid
+        val query = if (!uid.isNullOrBlank()) {
+            financesCollection.whereEqualTo("userId", uid)
+        } else {
+            financesCollection
+        }
         val listenerRegistration = try {
-            financesCollection.addSnapshotListener { snapshot, error ->
+            query.addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.w(TAG, "Firestore snapshot listener error: ${error.message}")
                     return@addSnapshotListener
@@ -261,27 +307,6 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Asynchronously saves a monthly finance record using coroutines.
-     */
-    suspend fun saveMonthlyFinanceAsync(finance: MonthlyFinanceEntity): Result<String> {
-        return suspendCancellableCoroutine { continuation ->
-            saveMonthlyFinance(finance) { success, errorMsg ->
-                if (continuation.isActive) {
-                    if (success) {
-                        val docId = if (finance.id != 0L) "FIN_${finance.type}_${finance.id}" else "FIN_${finance.type}_${finance.timestamp}"
-                        continuation.resume(Result.success(docId))
-                    } else {
-                        continuation.resume(Result.failure(Exception(errorMsg ?: "Failed to save monthly finance")))
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Parses Firestore document Map to SaleRecordEntity.
-     */
     fun fromFirestoreSaleDocument(data: Map<String, Any?>): SaleRecordEntity? {
         return try {
             val invoiceNumber = data["invoiceNumber"] as? String ?: return null
@@ -321,9 +346,6 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Parses Firestore document Map to MonthlyFinanceEntity.
-     */
     fun fromFirestoreFinanceDocument(data: Map<String, Any?>): MonthlyFinanceEntity? {
         return try {
             val type = data["type"] as? String ?: return null
@@ -351,13 +373,16 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Fetches all sale records from Firestore.
-     */
     suspend fun fetchAllSalesFromFirestore(): List<SaleRecordEntity> {
         return suspendCancellableCoroutine { continuation ->
             try {
-                salesCollection.get()
+                val uid = Firebase.auth.currentUser?.uid
+                val query = if (!uid.isNullOrBlank()) {
+                    salesCollection.whereEqualTo("userId", uid)
+                } else {
+                    salesCollection
+                }
+                query.get()
                     .addOnSuccessListener { snapshot ->
                         val list = snapshot.documents.mapNotNull { doc ->
                             fromFirestoreSaleDocument(doc.data ?: emptyMap())
@@ -375,13 +400,16 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Fetches all monthly finances from Firestore.
-     */
     suspend fun fetchAllFinancesFromFirestore(): List<MonthlyFinanceEntity> {
         return suspendCancellableCoroutine { continuation ->
             try {
-                financesCollection.get()
+                val uid = Firebase.auth.currentUser?.uid
+                val query = if (!uid.isNullOrBlank()) {
+                    financesCollection.whereEqualTo("userId", uid)
+                } else {
+                    financesCollection
+                }
+                query.get()
                     .addOnSuccessListener { snapshot ->
                         val list = snapshot.documents.mapNotNull { doc ->
                             fromFirestoreFinanceDocument(doc.data ?: emptyMap())
@@ -399,10 +427,6 @@ class SaleFirestoreManager(
         }
     }
 
-    /**
-     * Syncs all sales and monthly finances to Firestore safely with async awaits.
-     * Returns Pair(salesSyncedCount, financesSyncedCount).
-     */
     suspend fun syncAllToFirestore(
         sales: List<SaleRecordEntity>,
         finances: List<MonthlyFinanceEntity>
@@ -427,4 +451,3 @@ class SaleFirestoreManager(
         return Pair(salesSynced, financesSynced)
     }
 }
-

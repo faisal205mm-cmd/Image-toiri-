@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "SaleRecord": {
+      "title": "SaleRecord",
+      "description": "Apparel sales invoice record synchronized with Cloud Firestore.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number", "description": "Local ID of the sale record" },
+        "invoiceNumber": { "type": "string", "description": "Unique invoice identifier" },
+        "customerName": { "type": "string", "description": "Customer full or display name" },
+        "customerPhone": { "type": "string", "description": "Customer contact telephone number" },
+        "itemsSummary": { "type": "string", "description": "Summary of purchased items and fabrics" },
+        "itemsCount": { "type": "number", "description": "Total quantity of items in the sale" },
+        "subtotal": { "type": "number", "description": "Subtotal amount before discount" },
+        "discount": { "type": "number", "description": "Discount applied to the invoice" },
+        "totalAmount": { "type": "number", "description": "Final total bill payable" },
+        "paidAmount": { "type": "number", "description": "Amount paid by customer" },
+        "dueAmount": { "type": "number", "description": "Remaining due amount" },
+        "paymentMethod": { "type": "string", "description": "Method of payment (CASH, BKASH, etc.)" },
+        "note": { "type": "string", "description": "Optional sale notes or instructions" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp of sale creation" },
+        "createdAtFormatted": { "type": "string", "description": "Human-readable creation date" },
+        "syncedAt": { "type": "number", "description": "Epoch timestamp when synced to cloud" },
+        "userId": { "type": "string", "description": "Firebase Auth UID of the record owner" }
+      },
+      "required": ["invoiceNumber", "totalAmount"]
+    },
+    "MonthlyFinance": {
+      "title": "MonthlyFinance",
+      "description": "Monthly income and expense cash flow record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number", "description": "Local transaction ID" },
+        "type": { "type": "string", "description": "Transaction type: INCOME or EXPENSE" },
+        "title": { "type": "string", "description": "Title or reason of the transaction" },
+        "amount": { "type": "number", "description": "Transaction monetary amount" },
+        "category": { "type": "string", "description": "Finance category (Material, Stitching, Rent, etc.)" },
+        "monthYear": { "type": "string", "description": "Target accounting period format yyyy-MM" },
+        "note": { "type": "string", "description": "Optional notes" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp" },
+        "createdAtFormatted": { "type": "string", "description": "Formatted date" },
+        "syncedAt": { "type": "number", "description": "Epoch sync timestamp" },
+        "userId": { "type": "string", "description": "Firebase Auth UID of the record owner" }
+      },
+      "required": ["type", "title", "amount"]
+    }
+  },
+  "firestore": {
+    "/sales_records/{invoiceId}": {
+      "schema": { "$ref": "#/entities/SaleRecord" },
+      "description": "Collection of retail apparel sale records"
+    },
+    "/monthly_finances/{financeId}": {
+      "schema": { "$ref": "#/entities/MonthlyFinance" },
+      "description": "Collection of business monthly income and expense entries"
+    }
+  }
+}

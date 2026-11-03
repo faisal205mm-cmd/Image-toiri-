@@ -27,7 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Menu
@@ -459,7 +459,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                 .testTag("nav_item_firebase_db")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FormatListBulleted,
+                                imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
                                 contentDescription = "Fashion Records",
                                 tint = if (isDb) Color(0xFF00C853) else Color(0xFF64748B),
                                 modifier = Modifier.size(24.dp)

@@ -56,6 +56,7 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
     // Waveform simulation during speaking so avatar dances to AI voice
     private var speakWaveformRunnable: Runnable? = null
 
+    @Suppress("DEPRECATION")
     fun toggleSpeaker(enable: Boolean? = null) {
         val next = enable ?: !_isSpeakerOn.value
         _isSpeakerOn.value = next
@@ -69,6 +70,7 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
     /**
      * Ensure audio volume is audible on speakerphone so user clearly hears the AI voice.
      */
+    @Suppress("DEPRECATION")
     fun ensureAudioLoudspeaker() {
         try {
             audioManager?.mode = AudioManager.MODE_NORMAL
@@ -116,14 +118,16 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
             textToSpeech?.let { tts ->
                 try {
                     // Check if Bengali voice package is available on device
-                    val bnBdAvailable = tts.isLanguageAvailable(Locale("bn", "BD"))
-                    val bnAvailable = tts.isLanguageAvailable(Locale("bn"))
+                    val bnBdLocale = Locale.forLanguageTag("bn-BD")
+                    val bnLocale = Locale.forLanguageTag("bn")
+                    val bnBdAvailable = tts.isLanguageAvailable(bnBdLocale)
+                    val bnAvailable = tts.isLanguageAvailable(bnLocale)
                     isBengaliTtsAvailable = bnBdAvailable >= TextToSpeech.LANG_AVAILABLE || bnAvailable >= TextToSpeech.LANG_AVAILABLE
 
                     if (isBengaliTtsAvailable) {
-                        val setRes = tts.setLanguage(Locale("bn", "BD"))
+                        val setRes = tts.setLanguage(bnBdLocale)
                         if (setRes < TextToSpeech.LANG_AVAILABLE) {
-                            tts.setLanguage(Locale("bn"))
+                            tts.setLanguage(bnLocale)
                         }
                         // Try selecting best Bengali voice
                         val bnVoice = tts.voices?.firstOrNull { it.locale.language == "bn" && !it.isNetworkConnectionRequired }
@@ -181,7 +185,7 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
                     })
 
                     isTtsInitialized = true
-                    Log.d("VoiceAssistantManager", "TTS ready. Bengali available: $isBengaliTtsAvailable, language: ${tts.language}")
+                    Log.d("VoiceAssistantManager", "TTS ready. Bengali available: $isBengaliTtsAvailable, language: ${tts.voice?.locale?.toLanguageTag() ?: "unknown"}")
 
                     // Process any speech queued before init
                     pendingSpeechText?.let { text ->

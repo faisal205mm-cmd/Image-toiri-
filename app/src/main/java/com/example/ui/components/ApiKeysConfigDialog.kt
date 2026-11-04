@@ -119,7 +119,7 @@ fun ApiKeysConfigDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "💡 টিপস: Gemini API কি চ্যাটিং, কাপড়ের হিসাব ও এআই ব্যবসায়িক পরামর্শের জন্য ব্যবহৃত হয়।",
+                    text = "💡 টিপস: Gemini 3.8 Flash মডেল চ্যাটিং, কাপড়ের হিসাব ও এআই ব্যবসায়িক পরামর্শের জন্য ব্যবহৃত হয়।",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.outline
                 )

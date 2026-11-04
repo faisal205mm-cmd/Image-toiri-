@@ -197,6 +197,36 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFE8F5E9),
+                                border = BorderStroke(1.dp, Color(0xFF00C853).copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .testTag("gemini_38_flash_model_badge")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Gemini 3.8 Flash Active",
+                                        tint = Color(0xFF00A859),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "3.8 Flash",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = Color(0xFF007A3D)
+                                    )
+                                }
+                            }
+
                             IconButton(
                                 onClick = {
                                     showApiKeysDialog = true

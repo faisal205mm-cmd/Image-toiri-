@@ -782,7 +782,7 @@ fun GeminiApiKeyBar(
                     )
 
                     Text(
-                        text = "গুগল এআই স্টুডিও (Google AI Studio) এর API Key এখানে সেভ করলেই রিয়েল-টাইম চ্যাটিং এবং ছবি তৈরি (Gemini 3.1 Flash Image) সম্পূর্ণ সক্রিয় হবে:",
+                        text = "গুগল এআই স্টুডিও (Google AI Studio) এর API Key এখানে সেভ করলেই রিয়েল-টাইম চ্যাটিং ও স্মার্ট পরামর্শ (Gemini 3.8 Flash) সম্পূর্ণ সক্রিয় হবে:",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 16.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -157,14 +157,14 @@ interface GeminiApiService {
 object GeminiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
 
-    const val MODEL_FLASH = "gemini-2.5-flash"
-    const val MODEL_PRO = "gemini-2.5-pro"
-    const val MODEL_FLASH_LITE = "gemini-2.5-flash-lite"
-    const val MODEL_IMAGE_PRIMARY = "gemini-2.5-flash-image"
-    const val MODEL_IMAGE_LATEST = "gemini-3.1-flash-image-preview"
-    const val MODEL_IMAGE_PRO = "gemini-3-pro-image-preview"
-    const val MODEL_IMAGE_FALLBACK = "gemini-2.5-flash-image"
-    const val MODEL_IMAGE = "gemini-2.5-flash-image"
+    const val MODEL_FLASH = "gemini-3.8-flash"
+    const val MODEL_PRO = "gemini-4-argon"
+    const val MODEL_FLASH_LITE = "gemini-3.5-flash-lite"
+    const val MODEL_IMAGE_PRIMARY = "gemini-nano-banana-2.1"
+    const val MODEL_IMAGE_LATEST = "gemini-3-pro-image"
+    const val MODEL_IMAGE_PRO = "gemini-3-pro-image"
+    const val MODEL_IMAGE_FALLBACK = "gemini-3.1-flash-lite-image"
+    const val MODEL_IMAGE = "gemini-nano-banana-2.1"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC

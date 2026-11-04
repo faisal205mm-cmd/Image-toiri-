@@ -1,6 +1,6 @@
 {
   "name": "AI Assistant",
-    "description": "AI Chat assistant and New Sale POS management system with Gemini and Firebase Firestore integration.",
+  "description": "AI Chat assistant and New Sale POS management system with Gemini 3.8 Flash and Firebase Firestore integration.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

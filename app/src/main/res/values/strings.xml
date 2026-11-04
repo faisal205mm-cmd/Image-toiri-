@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">AI Assistant</string>
+    <string name="default_web_client_id" translatable="false">945116231940-v0elotaote8cd4decb7f8sgbufmplpu0.apps.googleusercontent.com</string>
 </resources>

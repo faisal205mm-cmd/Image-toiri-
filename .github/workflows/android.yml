@@ -82,7 +82,12 @@ jobs:
                     "package_name": "com.aistudio.appareladvisor.yqvkz"
                   }
                 },
-                "oauth_client": [],
+                "oauth_client": [
+                  {
+                    "client_id": "945116231940-v0elotaote8cd4decb7f8sgbufmplpu0.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
                 "api_key": [
                   {
                     "current_key": "mock_key"

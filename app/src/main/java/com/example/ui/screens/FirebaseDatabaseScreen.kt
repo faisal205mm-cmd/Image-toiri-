@@ -189,9 +189,12 @@ fun FirebaseDatabaseScreen(
                                     FirebaseAuthManager.signInWithGoogle(
                                         activity = activity,
                                         scope = coroutineScope,
-                                        onSuccess = {
+                                        onSuccess = { user ->
                                             isAuthLoading = false
                                             Toast.makeText(context, "Google দিয়ে সফলভাবে সাইন ইন হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            viewModel.testFirestoreConnectionAndSync { success, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
                                         },
                                         onError = { error ->
                                             isAuthLoading = false
@@ -199,6 +202,7 @@ fun FirebaseDatabaseScreen(
                                         },
                                         onCancelled = {
                                             isAuthLoading = false
+                                            Toast.makeText(context, "সাইন-ইন বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
@@ -232,33 +236,79 @@ fun FirebaseDatabaseScreen(
                             }
                         }
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "UID: ${currentUser?.uid?.take(12)}...",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            TextButton(
-                                onClick = {
-                                    FirebaseAuthManager.signOut(context, coroutineScope) {
-                                        Toast.makeText(context, "সাইন আউট সম্পন্ন হয়েছে", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.testTag("btn_google_signout_firestore")
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Logout,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(16.dp)
+                                Text(
+                                    text = "UID: ${currentUser?.uid?.take(14)}...",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("সাইন আউট", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+
+                                TextButton(
+                                    onClick = {
+                                        FirebaseAuthManager.signOut(context, coroutineScope) {
+                                            Toast.makeText(context, "সাইন আউট সম্পন্ন হয়েছে", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("btn_google_signout_firestore")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("সাইন আউট", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                }
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Button(
+                                    onClick = {
+                                        isSyncing = true
+                                        viewModel.testFirestoreConnection { success, msg ->
+                                            isSyncing = false
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    enabled = !isSyncing,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .testTag("btn_verify_connection")
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("কানেকশন টেস্ট", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        isSyncing = true
+                                        viewModel.syncAllSalesToFirestore { count, msg ->
+                                            isSyncing = false
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = !isSyncing,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("btn_sync_now_card")
+                                ) {
+                                    Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("এখনই সিঙ্ক", fontSize = 12.sp)
+                                }
                             }
                         }
                     }

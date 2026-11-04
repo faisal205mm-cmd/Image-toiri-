@@ -12,10 +12,13 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 /**
@@ -449,5 +452,48 @@ class SaleFirestoreManager(
         }
 
         return Pair(salesSynced, financesSynced)
+    }
+
+    /**
+     * Verifies live read & write connectivity to Cloud Firestore for the signed-in user.
+     * Returns the current counts of sales and finance documents stored in Firestore.
+     */
+    suspend fun testConnection(): Result<Pair<Int, Int>> = withContext(Dispatchers.IO) {
+        try {
+            val user = Firebase.auth.currentUser
+            if (user == null) {
+                return@withContext Result.failure(IllegalStateException("কোনো Google অ্যাকাউন্ট সাইন ইন করা নেই। অনুগ্রহ করে প্রথমে সাইন ইন করুন।"))
+            }
+            val uid = user.uid
+
+            // Perform a lightweight probe to verify read and rule access
+            val salesSnapshot = salesCollection.whereEqualTo("userId", uid).limit(50).get().await()
+            val financesSnapshot = financesCollection.whereEqualTo("userId", uid).limit(50).get().await()
+
+            // Perform a lightweight write check with a temporary diagnostic ping
+            val pingDocId = "PING_${uid.take(8)}"
+            val pingPayload = hashMapOf<String, Any>(
+                "invoiceNumber" to pingDocId,
+                "totalAmount" to 0.0,
+                "paidAmount" to 0.0,
+                "dueAmount" to 0.0,
+                "userId" to uid,
+                "customerName" to "Connection Probe",
+                "itemsSummary" to "Diagnostic",
+                "timestamp" to System.currentTimeMillis()
+            )
+            salesCollection.document(pingDocId).set(pingPayload).await()
+            try {
+                salesCollection.document(pingDocId).delete().await()
+            } catch (cleanupEx: Exception) {
+                Log.w(TAG, "Note on probe cleanup: ${cleanupEx.message}")
+            }
+
+            Log.d(TAG, "Firestore live connection verified: ${salesSnapshot.size()} sales, ${financesSnapshot.size()} finances")
+            Result.success(Pair(salesSnapshot.size(), financesSnapshot.size()))
+        } catch (e: Exception) {
+            Log.e(TAG, "Firestore connection test failed: ${e.message}", e)
+            Result.failure(e)
+        }
     }
 }

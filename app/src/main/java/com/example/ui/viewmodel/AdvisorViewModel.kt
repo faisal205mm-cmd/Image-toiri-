@@ -132,6 +132,15 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         loadInitialProfile()
         seedSampleDataIfEmpty()
         autoRestoreFromCloudIfEmpty()
+        viewModelScope.launch {
+            com.example.data.firebase.FirebaseAuthManager.currentUser.collect { user ->
+                if (user != null) {
+                    testFirestoreConnectionAndSync()
+                } else {
+                    _firestoreSyncStatus.value = "Google অ্যাকাউন্ট সংযুক্ত নেই (লগইন করুন)"
+                }
+            }
+        }
     }
 
     private fun autoRestoreFromCloudIfEmpty() {
@@ -234,10 +243,47 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Firebase Firestore ---
-    fun getFirestoreManager() = repository.getFirestoreManager()
-
     private val _firestoreSyncStatus = MutableStateFlow<String?>("সংযুক্ত (Connected)")
     val firestoreSyncStatus: StateFlow<String?> = _firestoreSyncStatus.asStateFlow()
+
+    fun testFirestoreConnection(onResult: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _firestoreSyncStatus.value = "ফায়ারবেস ক্লাউড ডাটাবেজ যাচাই করা হচ্ছে..."
+            val result = repository.testFirestoreConnection()
+            result.onSuccess { (salesCount, financesCount) ->
+                val msg = "সফলভাবে সংযুক্ত! ($salesCount টি বিক্রি ও $financesCount টি আর্থিক রেকর্ড ক্লাউডে সক্রিয়)"
+                _firestoreSyncStatus.value = msg
+                onResult?.invoke(true, msg)
+            }.onFailure { ex ->
+                val errorMsg = "ডাটাবেজ সংযোগ ত্রুটি: ${ex.localizedMessage ?: "সংযোগ ব্যর্থ"}"
+                _firestoreSyncStatus.value = errorMsg
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    fun testFirestoreConnectionAndSync(onResult: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _firestoreSyncStatus.value = "ক্লাউড ডাটাবেজ যাচাই ও সিঙ্ক হচ্ছে..."
+            val testRes = repository.testFirestoreConnection()
+            testRes.onSuccess {
+                try {
+                    val (salesCount, financesCount) = repository.syncAllToFirestore()
+                    val msg = "ডাটাবেজ সংযুক্ত ও সিঙ্ক সম্পন্ন ($salesCount টি বিক্রি, $financesCount টি আর্থিক হিসাব)"
+                    _firestoreSyncStatus.value = msg
+                    onResult?.invoke(true, msg)
+                } catch (e: Exception) {
+                    val errorMsg = "সিঙ্ক ত্রুটি: ${e.localizedMessage ?: "ত্রুটি"}"
+                    _firestoreSyncStatus.value = errorMsg
+                    onResult?.invoke(false, errorMsg)
+                }
+            }.onFailure { ex ->
+                val errorMsg = "ডাটাবেজ সংযোগ ত্রুটি: ${ex.localizedMessage ?: "সংযোগ ব্যর্থ"}"
+                _firestoreSyncStatus.value = errorMsg
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
 
     fun syncAllSalesToFirestore(onResult: ((Int, String) -> Unit)? = null) {
         viewModelScope.launch {

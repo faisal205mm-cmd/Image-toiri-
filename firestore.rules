@@ -23,7 +23,7 @@ service cloud.firestore {
     }
 
     function isValidMonthlyFinance(data) {
-      return data.type in ['INCOME', 'EXPENSE'] &&
+      return data.type in ['SALE', 'EXPENSE', 'DEBT_PAY', 'PRODUCT_BUY', 'INCOME'] &&
              data.title is string && data.title.size() > 0 &&
              data.amount is number && data.amount >= 0 &&
              (!('userId' in data) || (data.userId is string && data.userId.size() > 0));

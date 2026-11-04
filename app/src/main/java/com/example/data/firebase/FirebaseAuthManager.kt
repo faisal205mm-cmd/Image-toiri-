@@ -30,8 +30,6 @@ import kotlinx.coroutines.tasks.await
  */
 object FirebaseAuthManager {
     private const val TAG = "FirebaseAuthManager"
-    private const val FALLBACK_WEB_CLIENT_ID = "945116231940-v0elotaote8cd4decb7f8sgbufmplpu0.apps.googleusercontent.com"
-
     private val _currentUser = MutableStateFlow<FirebaseUser?>(Firebase.auth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
 
@@ -52,14 +50,15 @@ object FirebaseAuthManager {
         onCancelled: () -> Unit = {}
     ) {
         val clientId = try {
-            val resId = activity.resources.getIdentifier("default_web_client_id", "string", activity.packageName)
-            if (resId != 0) {
-                activity.getString(resId)
-            } else {
-                FALLBACK_WEB_CLIENT_ID
-            }
+            activity.getString(R.string.default_web_client_id)
         } catch (e: Exception) {
-            FALLBACK_WEB_CLIENT_ID
+            val resId = activity.resources.getIdentifier("default_web_client_id", "string", activity.packageName)
+            if (resId != 0) activity.getString(resId) else ""
+        }
+
+        if (clientId.isBlank()) {
+            onError("Google Sign-In configuration missing: default_web_client_id not found")
+            return
         }
 
         val credentialManager = CredentialManager.create(activity)

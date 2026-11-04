@@ -847,6 +847,10 @@ Format your report as follows:
         database.monthlyFinanceDao().getAllFinancesDirect()
     }
 
+    suspend fun testFirestoreConnection(): Result<Pair<Int, Int>> = withContext(Dispatchers.IO) {
+        firestoreManager.testConnection()
+    }
+
     suspend fun syncAllToFirestore(): Pair<Int, Int> = withContext(Dispatchers.IO) {
         val sales = database.saleDao().getAllSalesDirect()
         val finances = database.monthlyFinanceDao().getAllFinancesDirect()

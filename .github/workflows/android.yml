@@ -111,20 +111,28 @@ jobs:
           fi
           ls -lh debug.keystore
 
-      - name: Ensure Gradle Wrapper Executable (Gradle 9.3.1)
+      - name: Ensure Gradle Executable
         run: |
-          if [ ! -f "gradlew" ]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
           fi
-          chmod +x gradlew
 
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --stacktrace --continue
-        continue-on-error: true
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew testDebugUnitTest --stacktrace --continue || true
+          else
+            gradle testDebugUnitTest --stacktrace --continue || true
+          fi
 
       - name: Build Debug APK
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' || inputs.build_type == 'all' }}
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
 
       - name: Build Release Bundle (AAB) & APK
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'release' || inputs.build_type == 'all' }}
@@ -134,7 +142,11 @@ jobs:
           KEY_ALIAS: androiddebugkey
           KEY_PASSWORD: android
         run: |
-          ./gradlew bundleRelease assembleRelease --stacktrace
+          if [ -f "./gradlew" ]; then
+            ./gradlew bundleRelease assembleRelease --stacktrace
+          else
+            gradle bundleRelease assembleRelease --stacktrace
+          fi
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

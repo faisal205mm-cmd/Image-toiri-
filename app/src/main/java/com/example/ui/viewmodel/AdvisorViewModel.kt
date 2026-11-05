@@ -70,6 +70,17 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     private val _apiKeyTesting = MutableStateFlow(false)
     val apiKeyTesting: StateFlow<Boolean> = _apiKeyTesting.asStateFlow()
+
+    // Firebase Firestore Sync Status (declared before init to prevent NPE during initial collect)
+    private val _firestoreSyncStatus = MutableStateFlow<String?>("সংযুক্ত (Connected)")
+    val firestoreSyncStatus: StateFlow<String?> = _firestoreSyncStatus.asStateFlow()
+
+    // Business Diagnostic state (declared before init to prevent NPE during loadInitialProfile)
+    private val _isGeneratingDiagnostic = MutableStateFlow(false)
+    val isGeneratingDiagnostic: StateFlow<Boolean> = _isGeneratingDiagnostic.asStateFlow()
+    private val _diagnosticReport = MutableStateFlow<String?>(null)
+    val diagnosticReport: StateFlow<String?> = _diagnosticReport.asStateFlow()
+
     // Voice Assistant (Speech-To-Text & Text-To-Speech)
     private val voiceAssistant = com.example.data.util.VoiceAssistantManager(application)
     val isListening: StateFlow<Boolean> = voiceAssistant.isListening
@@ -243,8 +254,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Firebase Firestore ---
-    private val _firestoreSyncStatus = MutableStateFlow<String?>("সংযুক্ত (Connected)")
-    val firestoreSyncStatus: StateFlow<String?> = _firestoreSyncStatus.asStateFlow()
+
 
     fun testFirestoreConnection(onResult: ((Boolean, String) -> Unit)? = null) {
         viewModelScope.launch {
@@ -915,12 +925,6 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
-
-    private val _isGeneratingDiagnostic = MutableStateFlow(false)
-    val isGeneratingDiagnostic: StateFlow<Boolean> = _isGeneratingDiagnostic.asStateFlow()
-
-    private val _diagnosticReport = MutableStateFlow<String?>(null)
-    val diagnosticReport: StateFlow<String?> = _diagnosticReport.asStateFlow()
 
     fun saveProfile(profile: BrandProfileEntity) {
         viewModelScope.launch {

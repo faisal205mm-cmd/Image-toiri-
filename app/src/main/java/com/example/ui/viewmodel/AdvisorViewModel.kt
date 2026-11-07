@@ -142,11 +142,11 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
         updateApiKeyStatus()
         loadInitialProfile()
         seedSampleDataIfEmpty()
-        autoRestoreFromCloudIfEmpty()
         viewModelScope.launch {
             com.example.data.firebase.FirebaseAuthManager.currentUser.collect { user ->
                 if (user != null) {
                     testFirestoreConnectionAndSync()
+                    autoRestoreFromCloudIfEmpty()
                 } else {
                     _firestoreSyncStatus.value = "Google অ্যাকাউন্ট সংযুক্ত নেই (লগইন করুন)"
                 }
@@ -155,6 +155,7 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun autoRestoreFromCloudIfEmpty() {
+        val user = com.example.data.firebase.FirebaseAuthManager.currentUser.value ?: return
         viewModelScope.launch {
             try {
                 val localSales = repository.getAllSalesDirect()

@@ -24,6 +24,8 @@ import com.example.data.db.PricingSkuEntity
 import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
 import com.example.data.firebase.SaleFirestoreManager
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -105,6 +107,11 @@ class AdvisorRepository(
     private val database: AppDatabase,
     private val context: Context
 ) {
+
+    companion object {
+        @Volatile
+        private var lastWorkingChatModel: String? = null
+    }
 
     private val apiService: GeminiApiService = GeminiClient.apiService
     private var customApiKey: String? = null
@@ -311,10 +318,9 @@ No active Gemini API key was detected. To get real-time AI responses:
             return@withContext Pair(activeSessionId, fallback)
         }
 
-        // Build conversation contents
+        // Build conversation contents (keep last 6 turns for rapid token processing)
         val contentsList = mutableListOf<GeminiContent>()
-        // Include last few turns for context
-        val recentHistory = history.takeLast(8)
+        val recentHistory = history.takeLast(6)
         for (item in recentHistory) {
             val mappedRole = if (item.role == "user") "user" else "model"
             contentsList.add(
@@ -378,9 +384,20 @@ No active Gemini API key was detected. To get real-time AI responses:
                 userPrompt.contains("দোকানের ডাটা", ignoreCase = true) ||
                 userPrompt.contains("হিসাব", ignoreCase = true)
 
-        // Use the live store context (reads instantly from fast local database)
+        // Fast prompt instruction: prioritize immediate, concise, direct answers
+        val speedDirective = """
+            [SPEED & CONCISENESS PRIORITY - অত্যন্ত দ্রুত ও সরাসরি উত্তর দিন]:
+            ⚡ কোনো অতিরিক্ত ভূমিকা বা বিলম্ব ছাড়া প্রথম লাইনেই সরাসরি প্রশ্নের মূল উত্তর বা সিদ্ধান্ত প্রদান করুন।
+            ⚡ উত্তর হবে পয়েন্ট-ভিত্তিক (Bullet Points), স্পষ্ট এবং পড়তে সহজ (২-৪টি সংক্ষিপ্ত পয়েন্টে গুছিয়ে দিন)।
+            ⚡ ভাষা হবে প্রফেশনাল ও মিষ্টি বাংলা। দোকানের হিসাব বা পোশাক সংক্রান্ত বিষয়ে সরাসরি সংখ্যা ও অ্যাকশন পয়েন্ট উল্লেখ করুন।
+        """.trimIndent()
+
+        // Fast local database context (<3ms)
         val storeContext = getLiveStoreBusinessContext()
+
         val combinedSystemPrompt = """
+            $speedDirective
+
             [CRITICAL DIRECTIVE - IN-APP CLOTHING STORE MANAGER & LIVE FIREBASE CONNECTIVITY]
             You are the official in-app AI Store Manager and Financial Consultant for THIS APPAREL STORE (দোকানের ডিজিটাল ম্যানেজার ও হিসাবরক্ষক).
             YOU ARE 100% DIRECTLY CONNECTED to this store's Google Firebase Firestore cloud database (collections: 'sales_records' and 'monthly_finances') and local SQLite/Room database.
@@ -412,23 +429,33 @@ No active Gemini API key was detected. To get real-time AI responses:
             parts = listOf(GeminiPart(text = combinedSystemPrompt))
         )
 
+        // Fast generation config: lower temperature and set maxOutputTokens to prevent rambling
         val request = GeminiRequest(
             contents = contentsList,
             generationConfig = GenerationConfig(
-                temperature = 0.7f,
-                topP = 0.95f
+                temperature = 0.4f,
+                topP = 0.9f,
+                maxOutputTokens = 800
             ),
             systemInstruction = systemInstruction
         )
 
         var lastChatException: Exception? = null
         var chatResponseText: String? = null
-        val chatModels = listOf(
-            GeminiClient.MODEL_FLASH,
-            GeminiClient.MODEL_FLASH_LITE,
-            "gemini-3.5-flash",
+        val baseModels = listOf(
+            GeminiClient.MODEL_FLASH, // gemini-3.8-flash
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            GeminiClient.MODEL_FLASH_LITE, // gemini-3.5-flash-lite
             GeminiClient.MODEL_PRO
         )
+        // If a model worked on the previous turn, try it first to avoid any fallback latency
+        val chatModels = if (!lastWorkingChatModel.isNullOrBlank()) {
+            listOf(lastWorkingChatModel!!) + baseModels.filter { it != lastWorkingChatModel }
+        } else {
+            baseModels
+        }
 
         for (m in chatModels) {
             for (attempt in 1..2) {
@@ -442,17 +469,21 @@ No active Gemini API key was detected. To get real-time AI responses:
                     if (!text.isNullOrBlank()) {
                         chatResponseText = text
                         lastChatException = null
+                        lastWorkingChatModel = m
                         break
                     }
                 } catch (e: Exception) {
                     lastChatException = e
                     val parsed = GeminiErrorParser.parse(e)
                     if (parsed.errorType == GeminiErrorType.QUOTA_EXCEEDED) {
-                        kotlinx.coroutines.delay(1200L * attempt)
-                    } else if (parsed.errorType == GeminiErrorType.INVALID_API_KEY || parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                        kotlinx.coroutines.delay(1000L * attempt)
+                    } else if (parsed.errorType == GeminiErrorType.NOT_FOUND ||
+                        parsed.errorType == GeminiErrorType.INVALID_API_KEY ||
+                        parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                        // Immediately advance to next model with zero wait
                         break
                     } else {
-                        kotlinx.coroutines.delay(600L)
+                        if (attempt == 1) kotlinx.coroutines.delay(150L)
                     }
                 }
             }
@@ -852,12 +883,18 @@ Format your report as follows:
     }
 
     suspend fun syncAllToFirestore(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        if (com.google.firebase.Firebase.auth.currentUser == null) {
+            return@withContext Pair(0, 0)
+        }
         val sales = database.saleDao().getAllSalesDirect()
         val finances = database.monthlyFinanceDao().getAllFinancesDirect()
         firestoreManager.syncAllToFirestore(sales, finances)
     }
 
     suspend fun restoreAllFromFirestore(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        if (com.google.firebase.Firebase.auth.currentUser == null) {
+            return@withContext Pair(0, 0)
+        }
         val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
         val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
 
@@ -871,29 +908,8 @@ Format your report as follows:
     }
 
     suspend fun getLiveStoreBusinessContext(): String = withContext(Dispatchers.IO) {
-        var sales = database.saleDao().getAllSalesDirect()
-        var finances = database.monthlyFinanceDao().getAllFinancesDirect()
-
-        // Fast path: if local database has records, use them immediately (<5ms)
-        // Only if local database is completely empty, attempt a quick cloud restore with a 2-second timeout
-        if (sales.isEmpty() && finances.isEmpty()) {
-            try {
-                kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                    val remoteSales = firestoreManager.fetchAllSalesFromFirestore()
-                    val remoteFinances = firestoreManager.fetchAllFinancesFromFirestore()
-                    if (remoteSales.isNotEmpty()) {
-                        database.saleDao().insertSales(remoteSales)
-                    }
-                    if (remoteFinances.isNotEmpty()) {
-                        database.monthlyFinanceDao().insertFinances(remoteFinances)
-                    }
-                }
-                sales = database.saleDao().getAllSalesDirect()
-                finances = database.monthlyFinanceDao().getAllFinancesDirect()
-            } catch (e: Exception) {
-                android.util.Log.w("AdvisorRepository", "Auto cloud fetch notice: ${e.message}")
-            }
-        }
+        val sales = database.saleDao().getAllSalesDirect()
+        val finances = database.monthlyFinanceDao().getAllFinancesDirect()
 
         buildString {
             appendLine("=== REAL-TIME STORE BUSINESS & FINANCIAL DATABASE CONTEXT ===")

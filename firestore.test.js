@@ -99,3 +99,27 @@ test("Authenticated user: cannot delete another user's finance", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   await assertFails(aliceDb.collection("monthly_finances").doc("FIN-BOB").delete());
 });
+
+test("Authenticated user: can query own sales_records with where('userId', '==', uid)", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  await assertSucceeds(aliceDb.collection("sales_records").where("userId", "==", ALICE_UID).get());
+});
+
+test("Authenticated user: can query own monthly_finances with where('userId', '==', uid)", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  await assertSucceeds(aliceDb.collection("monthly_finances").where("userId", "==", ALICE_UID).get());
+});
+
+test("Authenticated user: cannot read another user's finance record", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("monthly_finances").doc("FIN-BOB-2").set({
+      type: "INCOME",
+      title: "Store Sale",
+      amount: 4000,
+      userId: BOB_UID
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  await assertFails(aliceDb.collection("monthly_finances").doc("FIN-BOB-2").get());
+});

@@ -170,10 +170,14 @@ object GeminiClient {
         level = HttpLoggingInterceptor.Level.BASIC
     }
 
+    private val connectionPool = okhttp3.ConnectionPool(8, 5, TimeUnit.MINUTES)
+
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .connectionPool(connectionPool)
+        .retryOnConnectionFailure(true)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .addInterceptor(loggingInterceptor)
         .build()
 

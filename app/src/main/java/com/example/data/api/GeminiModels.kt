@@ -39,6 +39,7 @@ data class GenerationConfig(
     @param:Json(name = "temperature") val temperature: Float? = null,
     @param:Json(name = "topP") val topP: Float? = null,
     @param:Json(name = "topK") val topK: Int? = null,
+    @param:Json(name = "maxOutputTokens") val maxOutputTokens: Int? = null,
     @param:Json(name = "responseModalities") val responseModalities: List<String>? = null,
     @param:Json(name = "imageConfig") val imageConfig: ImageConfig? = null
 )

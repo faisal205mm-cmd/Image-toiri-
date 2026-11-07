@@ -144,6 +144,13 @@ class SaleFirestoreManager(
         sale: SaleRecordEntity,
         onComplete: ((success: Boolean, errorMsg: String?) -> Unit)? = null
     ) {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            val msg = "Google দিয়ে সাইন ইন করা না থাকলে ক্লাউডে সংরক্ষণ সম্ভব নয়"
+            Log.w(TAG, msg)
+            onComplete?.invoke(false, msg)
+            return
+        }
         try {
             val docData = toFirestoreDocument(sale)
             val docId = if (sale.invoiceNumber.isNotBlank()) sale.invoiceNumber else "SALE_${sale.timestamp}"
@@ -203,11 +210,12 @@ class SaleFirestoreManager(
 
     fun observeFirestoreSales(): Flow<List<Map<String, Any>>> = callbackFlow {
         val uid = Firebase.auth.currentUser?.uid
-        val query = if (!uid.isNullOrBlank()) {
-            salesCollection.whereEqualTo("userId", uid)
-        } else {
-            salesCollection
+        if (uid.isNullOrBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
         }
+        val query = salesCollection.whereEqualTo("userId", uid)
         val listenerRegistration = try {
             query.addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -233,6 +241,13 @@ class SaleFirestoreManager(
         finance: MonthlyFinanceEntity,
         onComplete: ((success: Boolean, errorMsg: String?) -> Unit)? = null
     ) {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            val msg = "Google দিয়ে সাইন ইন করা না থাকলে ক্লাউডে সংরক্ষণ সম্ভব নয়"
+            Log.w(TAG, msg)
+            onComplete?.invoke(false, msg)
+            return
+        }
         try {
             val docData = toFirestoreFinanceDocument(finance)
             val docId = if (finance.id != 0L) "FIN_${finance.type}_${finance.id}" else "FIN_${finance.type}_${finance.timestamp}"
@@ -284,11 +299,12 @@ class SaleFirestoreManager(
 
     fun observeFirestoreFinances(): Flow<List<Map<String, Any>>> = callbackFlow {
         val uid = Firebase.auth.currentUser?.uid
-        val query = if (!uid.isNullOrBlank()) {
-            financesCollection.whereEqualTo("userId", uid)
-        } else {
-            financesCollection
+        if (uid.isNullOrBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
         }
+        val query = financesCollection.whereEqualTo("userId", uid)
         val listenerRegistration = try {
             query.addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -377,15 +393,14 @@ class SaleFirestoreManager(
     }
 
     suspend fun fetchAllSalesFromFirestore(): List<SaleRecordEntity> {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.d(TAG, "No authenticated Google user. Skipping remote sales fetch.")
+            return emptyList()
+        }
         return suspendCancellableCoroutine { continuation ->
             try {
-                val uid = Firebase.auth.currentUser?.uid
-                val query = if (!uid.isNullOrBlank()) {
-                    salesCollection.whereEqualTo("userId", uid)
-                } else {
-                    salesCollection
-                }
-                query.get()
+                salesCollection.whereEqualTo("userId", uid).get()
                     .addOnSuccessListener { snapshot ->
                         val list = snapshot.documents.mapNotNull { doc ->
                             fromFirestoreSaleDocument(doc.data ?: emptyMap())
@@ -404,15 +419,14 @@ class SaleFirestoreManager(
     }
 
     suspend fun fetchAllFinancesFromFirestore(): List<MonthlyFinanceEntity> {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.d(TAG, "No authenticated Google user. Skipping remote finances fetch.")
+            return emptyList()
+        }
         return suspendCancellableCoroutine { continuation ->
             try {
-                val uid = Firebase.auth.currentUser?.uid
-                val query = if (!uid.isNullOrBlank()) {
-                    financesCollection.whereEqualTo("userId", uid)
-                } else {
-                    financesCollection
-                }
-                query.get()
+                financesCollection.whereEqualTo("userId", uid).get()
                     .addOnSuccessListener { snapshot ->
                         val list = snapshot.documents.mapNotNull { doc ->
                             fromFirestoreFinanceDocument(doc.data ?: emptyMap())
@@ -434,6 +448,11 @@ class SaleFirestoreManager(
         sales: List<SaleRecordEntity>,
         finances: List<MonthlyFinanceEntity>
     ): Pair<Int, Int> {
+        val uid = Firebase.auth.currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.d(TAG, "No authenticated Google user. Skipping syncAllToFirestore.")
+            return Pair(0, 0)
+        }
         var salesSynced = 0
         var financesSynced = 0
 

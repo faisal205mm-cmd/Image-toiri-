@@ -108,3 +108,18 @@ data class MonthlyFinanceEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "seasonal_trends")
+data class SeasonalTrendEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val season: String,
+    val category: String,
+    val targetMarket: String,
+    val priceTier: String,
+    val headlineSummary: String,
+    val keyFabrics: String,
+    val keyColors: String,
+    val topSilhouettes: String,
+    val fullReportMarkdown: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+

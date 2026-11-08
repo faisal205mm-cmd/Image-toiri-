@@ -13,9 +13,10 @@ import androidx.room.RoomDatabase
         PricingSkuEntity::class,
         BrandProfileEntity::class,
         SaleRecordEntity::class,
-        MonthlyFinanceEntity::class
+        MonthlyFinanceEntity::class,
+        SeasonalTrendEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun brandDao(): BrandDao
     abstract fun saleDao(): SaleDao
     abstract fun monthlyFinanceDao(): MonthlyFinanceDao
+    abstract fun trendDao(): TrendDao
 
     companion object {
         @Volatile

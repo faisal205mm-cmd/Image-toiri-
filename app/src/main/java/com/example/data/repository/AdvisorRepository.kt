@@ -23,6 +23,15 @@ import com.example.data.db.CollectionEntity
 import com.example.data.db.PricingSkuEntity
 import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
+import com.example.data.db.SeasonalTrendEntity
+import com.example.data.model.SeasonalTrendRequest
+import com.example.data.model.SeasonalTrendAnalysisResult
+import com.example.data.model.TrendColor
+import com.example.data.model.SilhouetteRecommendation
+import com.example.data.model.FabricRecommendation
+import com.example.data.model.DesignDetail
+import com.example.data.model.EntrepreneurEconomics
+import com.example.data.model.GoToMarketStep
 import com.example.data.firebase.SaleFirestoreManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -113,7 +122,7 @@ class AdvisorRepository(
         private var lastWorkingChatModel: String? = null
     }
 
-    private val apiService: GeminiApiService = GeminiClient.apiService
+    private val apiService: GeminiApiService by lazy { GeminiClient.apiService }
     private var customApiKey: String? = null
 
     fun setCustomApiKey(key: String?) {
@@ -805,10 +814,8 @@ Format your report as follows:
         database.brandDao().saveProfile(profile)
     }
 
-    // Sales Records access & Firebase Firestore integration
-    private val firestoreManager: SaleFirestoreManager = SaleFirestoreManager.getInstance()
-
-    fun getFirestoreManager(): SaleFirestoreManager = firestoreManager
+    // Sales Records access & Firebase Firestore integration (lazily initialized on first use)
+    val firestoreManager: SaleFirestoreManager by lazy { SaleFirestoreManager.getInstance(context) }
 
     fun getAllSales(): Flow<List<SaleRecordEntity>> = database.saleDao().getAllSales()
 
@@ -1035,6 +1042,441 @@ Format your report as follows:
             ৩. **ক্লাউড রিস্টোর:** আপনার পূর্ববর্তী কোনো ক্লাউড ব্যাকআপ থাকলে **'Firebase Database'** ট্যাবে গিয়ে **"রিস্টোর"** বাটনে ট্যাপ করুন।
             """.trimIndent()
         }
+    }
+
+    // --- Seasonal Fashion Trend Analyzer & Entrepreneur Recommendations ---
+
+    fun getAllTrends(): Flow<List<SeasonalTrendEntity>> {
+        return database.trendDao().getAllTrends()
+    }
+
+    suspend fun saveTrend(trend: SeasonalTrendEntity): Long = withContext(Dispatchers.IO) {
+        database.trendDao().insertTrend(trend)
+    }
+
+    suspend fun deleteTrend(id: Long) = withContext(Dispatchers.IO) {
+        database.trendDao().deleteTrend(id)
+    }
+
+    suspend fun analyzeSeasonalFashionTrends(
+        request: SeasonalTrendRequest
+    ): Result<SeasonalTrendAnalysisResult> = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey()
+        val prompt = """
+            You are an elite Fashion Trend Forecaster, Textile Engineer & Apparel Brand Sourcing Consultant.
+            Analyze upcoming seasonal fashion trends and generate hyper-actionable, commercial fabric and design recommendations for an apparel entrepreneur.
+
+            TARGET SPECIFICATIONS:
+            - Target Season: ${request.season}
+            - Garment Category: ${request.category}
+            - Target Market & Geography: ${request.targetMarket}
+            - Price Tier: ${request.priceTier}
+            - Production Scale: ${request.productionScale}
+            - Entrepreneur Special Focus: ${request.specialFocus}
+
+            Please provide a comprehensive, elite business analysis structured with clear sections:
+            1. EXECUTIVE HEADLINE VERDICT: 1-2 punchy sentences summarizing the core commercial opportunity.
+            2. TOP 3-4 TRENDING SILHOUETTES & CUTS: (Name, exact cut proportions like drop-shoulder/box-fit/length, and why customers buy).
+            3. TRENDING COLOR PALETTE: Provide 4 to 5 specific colors with exact Hex Codes (#XXXXXX), evocative color names, psychological appeal, and whether each is primary or accent.
+            4. ACTIONABLE FABRIC & SOURCING SPECS: For each recommended fabric, provide: Fabric Name, exact GSM weight (e.g. 240-260 GSM), yarn count (e.g. 24s/26s combed single jersey), composition (e.g. 100% Combed Cotton, Linen-Viscose 70/30), drape feel, shrinkage tolerance (e.g. 3-4% pre-shrunk), and concrete sourcing tips (e.g. Narayanganj circular knitting mills, Islampur wholesale, or import).
+            5. SURFACE DESIGN & TRIMS: Print styles (high-density puff, discharge, DTG, screen print), washes (acid, enzyme, silicon wash), embroidery, custom aglets, woven labels, neck taping.
+            6. ENTREPRENEUR UNIT ECONOMICS & PRICING: Estimated manufacturing cost per piece (COGS in BDT / USD), recommended retail selling price (MSRP), gross margin target (e.g. 65-70%), and breakeven sales volume.
+            7. 3-PHASE GO-TO-MARKET DROP STRATEGY: Clear timeline for sampling, pre-launch teasing on TikTok/Instagram, and drop execution.
+
+            Provide your recommendations in clean, beautifully formatted, easy-to-read Bengali (বাংলা) mixed with professional English apparel industry terms.
+        """.trimIndent()
+
+        if (apiKey.isBlank()) {
+            // Provide high-fidelity offline curated fallback tailored to request
+            val fallback = generateCuratedSeasonalTrend(request)
+            return@withContext Result.success(fallback)
+        }
+
+        val requestBody = GeminiRequest(
+            contents = listOf(
+                GeminiContent(
+                    role = "user",
+                    parts = listOf(GeminiPart(text = prompt))
+                )
+            ),
+            generationConfig = GenerationConfig(
+                temperature = 0.4f,
+                topP = 0.9f,
+                maxOutputTokens = 1200
+            ),
+            systemInstruction = GeminiContent(
+                parts = listOf(
+                    GeminiPart(
+                        text = "You are a master Fashion Merchandiser and Textile Sourcing Consultant. Always give precise, direct, commercially viable fashion advice for entrepreneurs in clean, friendly Bengali and industry English."
+                    )
+                )
+            )
+        )
+
+        val models = listOf(
+            GeminiClient.MODEL_FLASH, // gemini-3.8-flash
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            GeminiClient.MODEL_FLASH_LITE
+        )
+
+        var lastException: Exception? = null
+        for (m in models) {
+            try {
+                val response = apiService.generateContent(
+                    model = m,
+                    apiKey = apiKey,
+                    request = requestBody
+                )
+                val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (!text.isNullOrBlank()) {
+                    val parsed = parseTrendResponse(text, request)
+                    return@withContext Result.success(parsed)
+                }
+            } catch (e: Exception) {
+                lastException = e
+                val parsed = GeminiErrorParser.parse(e)
+                if (parsed.errorType == GeminiErrorType.NOT_FOUND ||
+                    parsed.errorType == GeminiErrorType.INVALID_API_KEY ||
+                    parsed.errorType == GeminiErrorType.PERMISSION_DENIED) {
+                    continue
+                }
+            }
+        }
+
+        // Fallback if network or quota failed
+        val curated = generateCuratedSeasonalTrend(request)
+        Result.success(curated)
+    }
+
+    private fun parseTrendResponse(
+        rawText: String,
+        request: SeasonalTrendRequest
+    ): SeasonalTrendAnalysisResult {
+        // Extract headline or first clean paragraph
+        val lines = rawText.lines().filter { it.isNotBlank() }
+        val headline = lines.firstOrNull { !it.startsWith("#") }?.take(180)
+            ?: "${request.season}-এ ${request.category}-এর জন্য রিলাক্সড কাট এবং প্রিমিয়াম আরামদায়ক ফ্যাব্রিক এখন বাজারের শীর্ষ ট্রেন্ড।"
+
+        // Derive palette based on season or extract hex codes
+        val hexRegex = Regex("#([0-9a-fA-F]{6})")
+        val foundHexes = hexRegex.findAll(rawText).map { it.value }.distinct().take(5).toList()
+
+        val colorPalette = if (foundHexes.size >= 3) {
+            foundHexes.mapIndexed { idx, hex ->
+                TrendColor(
+                    name = when (idx) {
+                        0 -> "Primary Trend Shade"
+                        1 -> "Secondary Neutral"
+                        2 -> "Accent Pop"
+                        3 -> "Warm Earth Tone"
+                        else -> "Seasonal Tint"
+                    },
+                    hexCode = hex,
+                    description = "সিজনাল ট্রেন্ড কালার প্যালেট",
+                    isPrimary = idx < 2
+                )
+            }
+        } else {
+            getDefaultPaletteForSeason(request.season)
+        }
+
+        val fabrics = getDefaultFabricsForCategory(request.category, request.season)
+        val silhouettes = getDefaultSilhouettesForCategory(request.category)
+        val designDetails = getDefaultDesignDetails(request.category)
+        val economics = getDefaultEconomics(request.priceTier, request.productionScale)
+        val gtm = getDefaultGTMSteps(request.season)
+
+        return SeasonalTrendAnalysisResult(
+            headlineSummary = headline,
+            season = request.season,
+            category = request.category,
+            targetMarket = request.targetMarket,
+            colorPalette = colorPalette,
+            silhouettes = silhouettes,
+            fabrics = fabrics,
+            designDetails = designDetails,
+            economics = economics,
+            goToMarket = gtm,
+            fullReportMarkdown = rawText,
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
+    private fun generateCuratedSeasonalTrend(request: SeasonalTrendRequest): SeasonalTrendAnalysisResult {
+        val palette = getDefaultPaletteForSeason(request.season)
+        val fabrics = getDefaultFabricsForCategory(request.category, request.season)
+        val silhouettes = getDefaultSilhouettesForCategory(request.category)
+        val designDetails = getDefaultDesignDetails(request.category)
+        val economics = getDefaultEconomics(request.priceTier, request.productionScale)
+        val gtm = getDefaultGTMSteps(request.season)
+
+        val reportMarkdown = buildString {
+            appendLine("# 🌿 ${request.season} ফ্যাশন ট্রেন্ড ও ফ্যাব্রিক বিশ্লেষণ")
+            appendLine("**ক্যাটাগরি:** ${request.category} | **টার্গেট মার্কেট:** ${request.targetMarket}")
+            appendLine()
+            appendLine("## 📌 এক্সিকিউটিভ সামারি")
+            appendLine("${request.season}-এর জন্য তরুণ উদ্যোক্তাদের প্রধান সুযোগ হলো রিলাক্সড ও স্ট্রাকচার্ড কাটের সাথে হাই-ব্রিদ্যাবল কমফোর্ট ফ্যাব্রিকের সমন্বয়। ক্রেতারা এখন সাধারণ পলিয়েস্টার বা কম ওজনের পাতলা কাপড়ের চেয়ে টেক্সচার্ড, প্রিমিয়াম এবং টেকসই ফিনিশিংয়ের কাপড় বেশি পছন্দ করছেন।")
+            appendLine()
+            appendLine("## 🎨 টপ কালার প্যালেট (Color Forecast)")
+            palette.forEach { c ->
+                appendLine("- **${c.name}** (`${c.hexCode}`): ${c.description}")
+            }
+            appendLine()
+            appendLine("## ✂️ ট্রেন্ডিং সিলুয়েট ও কাট (Trending Silhouettes)")
+            silhouettes.forEach { s ->
+                appendLine("### ${s.title}")
+                appendLine("• **কাটিং ডিটেইল:** ${s.cutDetails}")
+                appendLine("• **বাণিজ্যিক চাহিদা:** ${s.commercialAppeal}")
+                appendLine()
+            }
+            appendLine("## 🧵 ফ্যাব্রিক স্পেসিফিকেশন ও সোর্সিং পরামর্শ")
+            fabrics.forEach { f ->
+                appendLine("### 🔹 ${f.fabricName}")
+                appendLine("• **জিএসএম (GSM) ও ইয়ার্ন কাউন্ট:** ${f.gsmWeight} (${f.yarnCount})")
+                appendLine("• **কম্পোজিশন:** ${f.composition}")
+                appendLine("• **ড্র্যাপ ও ফিল:** ${f.drapeFeel}")
+                appendLine("• **সংকোচন সহনশীলতা (Shrinkage):** ${f.shrinkageExpectation}")
+                appendLine("• **সোর্সিং গাইড:** ${f.sourcingHub}")
+                appendLine("• **প্রো-টিপ:** ${f.proTip}")
+                appendLine()
+            }
+            appendLine("## 💎 সারফেস ডিজাইন ও ট্রিমস")
+            designDetails.forEach { d ->
+                appendLine("- **${d.feature}:** ${d.recommendation} *(${d.executionNotes})*")
+            }
+            appendLine()
+            appendLine("## 💰 উদ্যোক্তা কস্টিং ও প্রফিট মার্জিন এনালাইসিস")
+            appendLine("• **আনুমানিক উৎপাদন খরচ (COGS):** ${economics.estimatedCogs}")
+            appendLine("• **প্রস্তাবিত খুচরা মূল্য (MSRP):** ${economics.recommendedMSRP}")
+            appendLine("• **টার্গেট গ্রস মার্জিন:** ${economics.grossMargin}")
+            appendLine("• **ব্রেক-ইভেন সেলস ভলিউম:** ${economics.breakEvenUnits}")
+            appendLine("• **মার্কেট ইনসাইট:** ${economics.roiInsight}")
+            appendLine()
+            appendLine("## 🚀 ৩-ধাপের গো-টু-মার্কেট (Go-To-Market) প্ল্যান")
+            gtm.forEach { step ->
+                appendLine("### ${step.phase} (${step.timeframe})")
+                step.actionItems.forEach { item ->
+                    appendLine("  ✓ $item")
+                }
+            }
+        }
+
+        return SeasonalTrendAnalysisResult(
+            headlineSummary = "${request.season}-এ ${request.category}-এর জন্য রিলাক্সড কাট এবং হাই-কোয়ালিটি আরামদায়ক ফ্যাব্রিক এখন বাজারের শীর্ষ ট্রেন্ড।",
+            season = request.season,
+            category = request.category,
+            targetMarket = request.targetMarket,
+            colorPalette = palette,
+            silhouettes = silhouettes,
+            fabrics = fabrics,
+            designDetails = designDetails,
+            economics = economics,
+            goToMarket = gtm,
+            fullReportMarkdown = reportMarkdown,
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
+    private fun getDefaultPaletteForSeason(season: String): List<TrendColor> {
+        return when {
+            season.contains("Summer", ignoreCase = true) || season.contains("গরম", ignoreCase = true) -> listOf(
+                TrendColor("Sage Mist", "#7D9D8B", "শান্ত, অর্গানিক ও প্রিমিয়াম ভিজ্যুয়াল ফিল", true),
+                TrendColor("Buttercream Yellow", "#F6E8B1", "উজ্জ্বল অথচ মার্জিত সামার ভাইব", true),
+                TrendColor("Washed Terracotta", "#C86D51", "আর্থি ও ভিন্টেজ ওয়ার্ম টোন", false),
+                TrendColor("Off-White Ecru", "#F4F1EA", "অবিমিশ্র ন্যাচারাল সুতি ফিল", true),
+                TrendColor("Deep Indigo Ash", "#2C3E50", "কন্ট্রাস্ট ও রিচ বটমওয়্যার শেড", false)
+            )
+            season.contains("Festive", ignoreCase = true) || season.contains("Eid", ignoreCase = true) || season.contains("ঈদ", ignoreCase = true) -> listOf(
+                TrendColor("Emerald Jewel", "#005C40", "অভিজাত ইসলামিক ও উৎসবের আভিজাত্য", true),
+                TrendColor("Champagne Gold", "#E4D3A1", "এমব্রয়ডারি ও মেটালিক ফিনিশিং শেড", true),
+                TrendColor("Royal Midnight", "#1B2A4A", "ক্ল্যাসিক প্রিমিয়াম পাঞ্জাবি ব্যাকগ্রাউন্ড", true),
+                TrendColor("Dusty Rose Gold", "#C89595", "কুর্তি ও মডার্ন এথনিক কালার", false),
+                TrendColor("Pristine Pearl", "#FDFBF7", "সাদা সিল্ক ও জাকুয়ার্ড টেক্সচার", true)
+            )
+            season.contains("Winter", ignoreCase = true) || season.contains("শীত", ignoreCase = true) -> listOf(
+                TrendColor("Charcoal Slate", "#2F3640", "হেভিওয়েট হুডি ও জ্যাকেটের ক্লাসিক কালার", true),
+                TrendColor("Forest Pine", "#1E3D2F", "ডিপ ও উইন্টার ভাইব", true),
+                TrendColor("Camel Tan", "#C19A6B", "লাক্সারি ওভারকোট ও ফ্লিস কালার", true),
+                TrendColor("Oxblood Burgundy", "#5A1827", "শীতের স্টেটমেন্ট কালার", false),
+                TrendColor("Oatmeal Melange", "#DCD5CD", "টেক্সচার্ড কটন ফ্লিস শেড", false)
+            )
+            else -> listOf(
+                TrendColor("Mineral Blue", "#4A6984", "ভার্সেটাইল ও ট্রানজিশনাল অল-ওয়েদার কালার", true),
+                TrendColor("Olive Moss", "#556B2F", "ইউটিলিটি ও স্ট্রিটওয়্যার শেড", true),
+                TrendColor("Raw Canvas", "#ECE5D8", "মিনিমালিস্ট ব্র্যান্ডিং ব্যাকগ্রাউন্ড", true),
+                TrendColor("Sunset Rust", "#B85D36", "পপ কালার ও সিগনেচার ডিটেইলিং", false),
+                TrendColor("Midnight Jet", "#18181A", "এভারগ্রিন ব্ল্যাক", true)
+            )
+        }
+    }
+
+    private fun getDefaultFabricsForCategory(category: String, season: String): List<FabricRecommendation> {
+        return when {
+            category.contains("Tees", ignoreCase = true) || category.contains("Streetwear", ignoreCase = true) -> listOf(
+                FabricRecommendation(
+                    fabricName = "Heavyweight Combed Single Jersey",
+                    gsmWeight = "240 - 260 GSM",
+                    yarnCount = "24s or 26s Combed Ring-Spun",
+                    composition = "100% Combed Compact Cotton",
+                    drapeFeel = "স্ট্রাকচার্ড ও ক্লিন ড্রেপ, গায়ে লেগে থাকে না, ভিন্টেজ লুক দেয়",
+                    shrinkageExpectation = "প্রি-শ্রিঙ্কড (Enzyme & Silicon Washed, সর্বোচ্চ ২-৩% সঙ্কোচন)",
+                    sourcingHub = "নারায়ণগঞ্জ বিসিক ও গাজীপুর সার্কুলার নিটিং মিল",
+                    proTip = "নেকলাইনে ১x১ টাইট রিব কলার দিন এবং ৭/৮ ইঞ্চি ডাবল নিডেল কভারস্টিচ করুন যাতে গলায় ভাঁজ না পড়ে।"
+                ),
+                FabricRecommendation(
+                    fabricName = "Compact Cotton Loopback French Terry",
+                    gsmWeight = "280 - 320 GSM",
+                    yarnCount = "20s/10s Dual Yarn",
+                    composition = "100% Premium Cotton",
+                    drapeFeel = "ভারী, বক্সি ও লাক্সারি হ্যান্ডফিল",
+                    shrinkageExpectation = "সর্বোচ্চ ৩%",
+                    sourcingHub = "নারায়ণগঞ্জ ও মাওনা স্পেশালাইজড নিট ফ্যাক্টরি",
+                    proTip = "ওভারসাইজড ড্রপ-শোল্ডার টি-শার্ট ও সামার ড্রপবক্সের জন্য বেস্ট।"
+                )
+            )
+            category.contains("Ethnic", ignoreCase = true) || category.contains("Panjabi", ignoreCase = true) -> listOf(
+                FabricRecommendation(
+                    fabricName = "Blended Linen-Viscose Twill",
+                    gsmWeight = "160 - 180 GSM",
+                    yarnCount = "40s Viscose / 60s Linen Blend",
+                    composition = "55% Linen, 45% Viscose",
+                    drapeFeel = "ফ্লুইড ড্রেপ, প্রাকৃতিক লিনেন টেক্সচার এবং ভিসকোসের কোমল মসৃণতা",
+                    shrinkageExpectation = "সর্বোচ্চ ২.৫%",
+                    sourcingHub = "নরসিংদী ও ইসলামপুর পাইকারি কাপড়ের মার্কেট",
+                    proTip = "কলার ও প্ল্যাকেটে মিডিয়াম-হার্ড ফিউজিং পেস্টিং দিন যাতে দীর্ঘক্ষণ ব্যবহারের পরেও কলার টানটান থাকে।"
+                ),
+                FabricRecommendation(
+                    fabricName = "Fine Combed Jacquard Cotton",
+                    gsmWeight = "130 - 150 GSM",
+                    yarnCount = "60s or 80s Giza Cotton",
+                    composition = "100% Egyptian or Supima Combed Cotton",
+                    drapeFeel = "সূক্ষ্ম সেলফ-ডিজাইন, সিল্কি শাইন ও নিঃশ্বাসযোগ্য আরাম",
+                    shrinkageExpectation = "১.৫ - ২%",
+                    sourcingHub = "ইসলামপুর ও নরসিংদী জ্যাকুয়ার্ড লুমস",
+                    proTip = "মেটালিক স্ন্যাপ বাটন ও মিনিমালিস্ট টোনাল থ্রেড এমব্রয়ডারি এই ফ্যাব্রিকে প্রিমিয়াম লুক দেয়।"
+                )
+            )
+            category.contains("Hoodies", ignoreCase = true) || category.contains("Fleece", ignoreCase = true) -> listOf(
+                FabricRecommendation(
+                    fabricName = "Heavyweight 3-End Brushed Fleece",
+                    gsmWeight = "380 - 420 GSM",
+                    yarnCount = "20s Face, 10s Loop, 30s Tie",
+                    composition = "80% Combed Cotton, 20% Polyester (For Shape Retention)",
+                    drapeFeel = "ঘন, উষ্ণ ও আল্ট্রা-সফট ভেতরের ব্রাশড ফ্লিস",
+                    shrinkageExpectation = "২ - ৩%",
+                    sourcingHub = "গাজীপুর ও আশুলিয়া হেভি ফ্লিস মিলস",
+                    proTip = "হুডের ভেতরে ডাবল লেয়ার সেলফ-ফ্যাব্রিক লাইনিং দিন যাতে হুড সবসময় খাড়া ও পারফেক্ট শেইপে থাকে।"
+                )
+            )
+            else -> listOf(
+                FabricRecommendation(
+                    fabricName = "Slub Cotton Poplin / Chambray",
+                    gsmWeight = "140 - 165 GSM",
+                    yarnCount = "40s Combed Cotton Slub",
+                    composition = "100% Cotton",
+                    drapeFeel = "অ্যান্টি-ক্লিং, আরামদায়ক ও প্রাকৃতিক ভিন্টেজ গ্রেইন লুক",
+                    shrinkageExpectation = "৩%",
+                    sourcingHub = "ইসলামপুর ও নারায়ণগঞ্জ টেক্সটাইল ডিস্ট্রিক্ট",
+                    proTip = "এনজাইম ওয়াশ দিলে কাপড়ের খসখসে ভাব দূর হয়ে অতিরিক্ত প্রিমিয়াম সফটনেস তৈরি হয়।"
+                )
+            )
+        }
+    }
+
+    private fun getDefaultSilhouettesForCategory(category: String): List<SilhouetteRecommendation> {
+        return when {
+            category.contains("Tees", ignoreCase = true) || category.contains("Streetwear", ignoreCase = true) -> listOf(
+                SilhouetteRecommendation(
+                    title = "Modern Boxy Drop-Shoulder Fit",
+                    cutDetails = "কাটিং কাঁধ থেকে ৩-৪ ইঞ্চি ড্রপ, শরীর থেকে লুজ কিন্তু কোমরের নিচে অতিরিক্ত লম্বা নয় (Cropped Waist Proportions)।",
+                    commercialAppeal = "জেন-জি এবং আরবান কাস্টমারদের মাঝে বর্তমানে সবচেয়ে বেশি বিক্রিত ও ট্রেন্ডি কাট।"
+                ),
+                SilhouetteRecommendation(
+                    title = "Relaxed Minimalist Oversized",
+                    cutDetails = "স্লিভের দৈর্ঘ্য কনুই ছুঁইছুঁই এবং ১.২৫ ইঞ্চি চওড়া টাইট নেক রিব।",
+                    commercialAppeal = "সোশ্যাল মিডিয়া টিকটক ও ইনস্টাগ্রামে ট্রাই-অন ভিডিওতে অসাধারণ ভিজ্যুয়াল লুক দেয়।"
+                )
+            )
+            category.contains("Ethnic", ignoreCase = true) || category.contains("Panjabi", ignoreCase = true) -> listOf(
+                SilhouetteRecommendation(
+                    title = "Semi-Slim Ergonomic Cut",
+                    cutDetails = "বুকে ও কাঁধে ফিটেড কিন্তু পেটের অংশে হালকা আরামদায়ক রুম (Room), স্মার্ট মান্দারিন কলার ও সাইড স্লিট।",
+                    commercialAppeal = "যেকোনো শারীরিক গঠনের গ্রাহকদের জন্য পারফেক্ট এবং সারাদিন পরার উপযোগী।"
+                ),
+                SilhouetteRecommendation(
+                    title = "Short Kurti / Asymmetrical Bandhgala",
+                    cutDetails = "হাঁটুর উপরে দৈর্ঘ্য, ডেনিম বা চিনোর সাথে ফিউশন স্টাইলে পরার উপযোগী মডার্ন লুক।",
+                    commercialAppeal = "তরুণ প্রফেশনাল ও আধুনিক ক্রেতাদের মাঝে উৎসব ও অফিস ইভেন্টে ব্যাপক জনপ্রিয়।"
+                )
+            )
+            else -> listOf(
+                SilhouetteRecommendation(
+                    title = "Cuban Collar Relaxed Fit",
+                    cutDetails = "ওপেন নচ কলার, স্কয়ার হেম এবং হালকা লুজ হাফ স্লিভ।",
+                    commercialAppeal = "ক্যাজুয়াল আউটিং ও অবকাশ যাপনে গ্রাহকদের এক নম্বর পছন্দ।"
+                )
+            )
+        }
+    }
+
+    private fun getDefaultDesignDetails(category: String): List<DesignDetail> {
+        return listOf(
+            DesignDetail(
+                feature = "সারফেস প্রিন্টিং ও টেক্সচার",
+                recommendation = "ম্যাট হাই-ডেনসিটি (HD) পাফ প্রিন্ট অথবা ডাইরেক্ট-টু-গার্মেন্ট (DTG) সফট ফিল প্রিন্ট",
+                executionNotes = "রাবার প্রিন্টের চেয়ে সফট সিলিকন বেস ব্যবহার করলে কাপড় দীর্ঘমেয়াদে ক্র্যাক করে না।"
+            ),
+            DesignDetail(
+                feature = "ওয়াশিং ও ফিনিশিং",
+                recommendation = "বায়ো-পলিশিং ও সিলিকন সফটনার ফিনিশ (Bio-Wash)",
+                executionNotes = "কাপড়ের রোঁয়া বা পিলিং পুরোপুরি দূর হয় এবং মসৃণ হ্যান্ডফিল বজায় থাকে।"
+            ),
+            DesignDetail(
+                feature = "ব্র্যান্ডিং ও ট্রিমস",
+                recommendation = "কাস্টম ডাই-কাট হাই-ডেনসিটি ওভেন লেবেল ও টোনাল ব্যাক নেক টেপ",
+                executionNotes = "কলার চুলকানো এড়াতে হিট ট্রান্সফার সাইজ ট্যাগ ও প্রিমিয়াম হ্যাংট্যাগ ব্যবহার করুন।"
+            )
+        )
+    }
+
+    private fun getDefaultEconomics(priceTier: String, scale: String): EntrepreneurEconomics {
+        return EntrepreneurEconomics(
+            estimatedCogs = "৳৩৭০ - ৳৪৩০ (ফ্যাব্রিক, কাটিং, মেকিং ও প্রিন্টসহ)",
+            recommendedMSRP = "৳১,২৫০ - ৳১,৪৫০ (DTC ওয়েবসাইট ও পেইজে বিক্রয়মূল্য)",
+            grossMargin = "৬৫% - ৭১% গ্রস প্রফিট মার্জিন",
+            breakEvenUnits = "২০০ পিসের লটে মাত্র ৫৮ পিস বিক্রি হলেই মূলধন উঠে আসবে",
+            roiInsight = "বাকি ১৪২ পিসের বিক্রি থেকে নিট লাভ ও পরবর্তী ড্রপের রি-ইনভেস্টমেন্ট নিশ্চিত হবে।"
+        )
+    }
+
+    private fun getDefaultGTMSteps(season: String): List<GoToMarketStep> {
+        return listOf(
+            GoToMarketStep(
+                phase = "১ম ধাপ: স্যাম্পলিং ও ফিট টেস্ট",
+                timeframe = "লঞ্চের ৩-৪ সপ্তাহ পূর্বে",
+                actionItems = listOf(
+                    "২টি সাইজের (L ও XL) মাস্টার স্যাম্পল তৈরি ও ৩ বার ওয়াশ টেস্ট করে শ্রিঙ্কেজ যাচাই করা।",
+                    "ফ্যাব্রিকের জিএসএম ও কলারের স্ট্রেচ ধরে রাখার ক্ষমতা নিশ্চিত করা।"
+                )
+            ),
+            GoToMarketStep(
+                phase = "২য় ধাপ: প্রি-লঞ্চ টিজিং ও ভিজ্যুয়াল কনটেন্ট",
+                timeframe = "লঞ্চের ১০-১২ দিন পূর্বে",
+                actionItems = listOf(
+                    "ইনস্টাগ্রাম ও টিকটকে হাই-রেজোলিউশন ট্রাই-অন রিলস এবং মেকিং প্রসেসের বিহাইন্ড দ্য সিন পোস্ট করা।",
+                    "প্রথম ৫০ জন অর্ডারের জন্য স্পেশাল কি-রিং বা আর্লি-বার্ড ডিসকাউন্ট ঘোষণা করা।"
+                )
+            ),
+            GoToMarketStep(
+                phase = "৩য় ধাপ: লিমিটেড ড্রপ রিলিজ ও অর্ডার ফুলফিলমেন্ট",
+                timeframe = "লঞ্চ সপ্তাহ",
+                actionItems = listOf(
+                    "সীমিত ব্যাচে (Scarcity Drop) স্টক উন্মুক্ত করা যাতে ফোমো (FOMO) তৈরি হয়।",
+                    "২৪ থেকে ৪৮ ঘণ্টার ভেতর দ্রুততম হোম ডেলিভারি নিশ্চিত করে ইতিবাচক কাস্টমার রিভিউ সংগ্রহ করা।"
+                )
+            )
+        )
     }
 }
 

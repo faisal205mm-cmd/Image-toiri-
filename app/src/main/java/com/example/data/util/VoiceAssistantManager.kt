@@ -101,15 +101,23 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
     val speechError: StateFlow<String?> = _speechError.asStateFlow()
 
     private var onSpeechResultCallback: ((String) -> Unit)? = null
+    private var isTtsInitializing = false
 
-    init {
+    fun ensureTtsInitialized() {
+        if (textToSpeech != null || isTtsInitializing) return
+        isTtsInitializing = true
         mainHandler.post {
             try {
                 textToSpeech = TextToSpeech(context.applicationContext, this)
             } catch (e: Exception) {
                 Log.e("VoiceAssistantManager", "Failed to init TextToSpeech: ${e.message}")
+                isTtsInitializing = false
             }
         }
+    }
+
+    init {
+        // TextToSpeech is initialized on-demand or in background to ensure instant app launch
     }
 
     // --- TextToSpeech Initialization Callback ---
@@ -276,6 +284,7 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
      */
     fun speak(text: String, messageId: Long? = null) {
         mainHandler.post {
+            ensureTtsInitialized()
             val cleaned = cleanTextForSpeech(text)
             if (cleaned.isBlank()) return@post
 
@@ -366,6 +375,7 @@ class VoiceAssistantManager(private val context: Context) : TextToSpeech.OnInitL
      */
     fun startListening(onResult: (String) -> Unit) {
         mainHandler.post {
+            ensureTtsInitialized()
             // Stop any ongoing speech playback while listening
             stopSpeaking()
 

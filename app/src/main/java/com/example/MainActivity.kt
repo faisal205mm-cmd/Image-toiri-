@@ -77,12 +77,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.ui.graphics.Color
 import com.example.ui.components.ApiKeysConfigDialog
 import com.example.ui.components.ChatHistoryDrawerContent
 import com.example.ui.screens.AdvisorChatScreen
 import com.example.ui.screens.FirebaseDatabaseScreen
 import com.example.ui.screens.NewSaleScreen
+import com.example.ui.screens.SeasonalTrendsScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.AdvisorViewModel
 import com.example.ui.viewmodel.MainAppTab
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: AdvisorViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_MyApplication)
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
@@ -130,40 +133,43 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                 drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
                 drawerContainerColor = MaterialTheme.colorScheme.surface
             ) {
-                ChatHistoryDrawerContent(
-                    sessions = allSessions,
-                    currentSessionId = currentSessionId,
-                    onSelectSession = { sessionId ->
-                        viewModel.selectSession(sessionId)
-                    },
-                    onNewChat = {
-                        viewModel.startNewSession()
-                    },
-                    onRenameSession = { sessionId, newTitle ->
-                        viewModel.renameSession(sessionId, newTitle)
-                    },
-                    onDeleteSession = { sessionId ->
-                        viewModel.deleteSession(sessionId)
-                    },
-                    onClearAllHistory = {
-                        viewModel.clearAllHistory()
-                    },
-                    onCloseDrawer = {
-                        scope.launch { drawerState.close() }
-                    },
-                    apiKeyStatus = apiKeyStatus,
-                    customApiKey = customApiKey,
-                    isApiKeyTesting = isApiKeyTesting,
-                    onSaveApiKey = { key ->
-                        viewModel.saveCustomApiKey(key)
-                    },
-                    onClearApiKey = {
-                        viewModel.clearCustomApiKey()
-                    },
-                    onTestApiKey = { key, onComplete ->
-                        viewModel.testApiKey(key, onComplete)
-                    }
-                )
+                // Optimize initial cold start: Only instantiate drawer tree when drawer is active or opening
+                if (drawerState.isOpen || drawerState.targetValue == DrawerValue.Open) {
+                    ChatHistoryDrawerContent(
+                        sessions = allSessions,
+                        currentSessionId = currentSessionId,
+                        onSelectSession = { sessionId ->
+                            viewModel.selectSession(sessionId)
+                        },
+                        onNewChat = {
+                            viewModel.startNewSession()
+                        },
+                        onRenameSession = { sessionId, newTitle ->
+                            viewModel.renameSession(sessionId, newTitle)
+                        },
+                        onDeleteSession = { sessionId ->
+                            viewModel.deleteSession(sessionId)
+                        },
+                        onClearAllHistory = {
+                            viewModel.clearAllHistory()
+                        },
+                        onCloseDrawer = {
+                            scope.launch { drawerState.close() }
+                        },
+                        apiKeyStatus = apiKeyStatus,
+                        customApiKey = customApiKey,
+                        isApiKeyTesting = isApiKeyTesting,
+                        onSaveApiKey = { key ->
+                            viewModel.saveCustomApiKey(key)
+                        },
+                        onClearApiKey = {
+                            viewModel.clearCustomApiKey()
+                        },
+                        onTestApiKey = { key, onComplete ->
+                            viewModel.testApiKey(key, onComplete)
+                        }
+                    )
+                }
             }
         }
     ) {
@@ -344,7 +350,11 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                         },
                         title = {
                             Text(
-                                text = if (selectedMainTab == MainAppTab.NEW_SALE) "মাসিক ফাইন্যান্স (Sale)" else "Firebase Firestore",
+                                text = when (selectedMainTab) {
+                                    MainAppTab.TRENDS -> "ফ্যাশন ট্রেন্ড অ্যানালাইজার"
+                                    MainAppTab.NEW_SALE -> "মাসিক ফাইন্যান্স (Sale)"
+                                    else -> "Firebase Firestore"
+                                },
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFF1E293B)
                             )
@@ -435,7 +445,48 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             }
                         }
 
-                        // 2. Sale Tab
+                        // 2. Trends Tab
+                        val isTrends = selectedMainTab == MainAppTab.TRENDS
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) { viewModel.selectMainTab(MainAppTab.TRENDS) }
+                                .padding(horizontal = 12.dp)
+                                .testTag("nav_item_trends")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                contentDescription = "Fashion Trends",
+                                tint = if (isTrends) Color(0xFF00C853) else Color(0xFF64748B),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "ট্রেন্ডস",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = if (isTrends) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp
+                                ),
+                                color = if (isTrends) Color(0xFF00C853) else Color(0xFF64748B)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (isTrends) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(36.dp)
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color(0xFF00C853))
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.height(3.dp))
+                            }
+                        }
+
+                        // 3. Sale Tab
                         val isSale = selectedMainTab == MainAppTab.NEW_SALE
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -444,7 +495,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                     indication = null,
                                     interactionSource = remember { MutableInteractionSource() }
                                 ) { viewModel.selectMainTab(MainAppTab.NEW_SALE) }
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = 12.dp)
                                 .testTag("nav_item_new_sale")
                         ) {
                             Icon(
@@ -476,7 +527,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             }
                         }
 
-                        // 3. Fashion / DB Tab
+                        // 4. Fashion / DB Tab
                         val isDb = selectedMainTab == MainAppTab.FIREBASE_DB
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -485,7 +536,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                     indication = null,
                                     interactionSource = remember { MutableInteractionSource() }
                                 ) { viewModel.selectMainTab(MainAppTab.FIREBASE_DB) }
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = 12.dp)
                                 .testTag("nav_item_firebase_db")
                         ) {
                             Icon(
@@ -496,7 +547,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "ক্যাশনরোলেন",
+                                text = "ফায়ারবেস DB",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (isDb) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 12.sp
@@ -533,6 +584,11 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             onOpenHistory = {
                                 scope.launch { drawerState.open() }
                             }
+                        )
+                    }
+                    MainAppTab.TRENDS -> {
+                        SeasonalTrendsScreen(
+                            viewModel = viewModel
                         )
                     }
                     MainAppTab.NEW_SALE -> {

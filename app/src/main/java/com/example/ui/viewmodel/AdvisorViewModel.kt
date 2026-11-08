@@ -12,8 +12,18 @@ import com.example.data.db.CollectionEntity
 import com.example.data.db.PricingSkuEntity
 import com.example.data.db.SaleRecordEntity
 import com.example.data.db.MonthlyFinanceEntity
+import com.example.data.db.SeasonalTrendEntity
+import com.example.data.model.SeasonalTrendRequest
+import com.example.data.model.SeasonalTrendAnalysisResult
+import com.example.data.model.TrendColor
+import com.example.data.model.SilhouetteRecommendation
+import com.example.data.model.FabricRecommendation
+import com.example.data.model.DesignDetail
+import com.example.data.model.EntrepreneurEconomics
+import com.example.data.model.GoToMarketStep
 import com.example.data.repository.AdvisorPersona
 import com.example.data.repository.AdvisorRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,9 +41,9 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-
 enum class MainAppTab(val title: String, val bnTitle: String) {
     AI_CHAT("AI Chat", "AI চ্যাট"),
+    TRENDS("Fashion Trends", "ট্রেন্ডস"),
     NEW_SALE("Sale", "Sale"),
     FIREBASE_DB("Firebase DB", "ফায়ারবেস DB")
 }
@@ -80,6 +90,14 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
     val isGeneratingDiagnostic: StateFlow<Boolean> = _isGeneratingDiagnostic.asStateFlow()
     private val _diagnosticReport = MutableStateFlow<String?>(null)
     val diagnosticReport: StateFlow<String?> = _diagnosticReport.asStateFlow()
+
+    // Seasonal Fashion Trend State (declared before init)
+    private val _seasonalTrendResult = MutableStateFlow<SeasonalTrendAnalysisResult?>(null)
+    val seasonalTrendResult: StateFlow<SeasonalTrendAnalysisResult?> = _seasonalTrendResult.asStateFlow()
+    private val _isAnalyzingTrends = MutableStateFlow(false)
+    val isAnalyzingTrends: StateFlow<Boolean> = _isAnalyzingTrends.asStateFlow()
+    private val _trendAnalysisError = MutableStateFlow<String?>(null)
+    val trendAnalysisError: StateFlow<String?> = _trendAnalysisError.asStateFlow()
 
     // Voice Assistant (Speech-To-Text & Text-To-Speech)
     private val voiceAssistant = com.example.data.util.VoiceAssistantManager(application)
@@ -140,9 +158,13 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
             repository.setCustomApiKey(savedKey)
         }
         updateApiKeyStatus()
-        loadInitialProfile()
-        seedSampleDataIfEmpty()
-        viewModelScope.launch {
+
+        // Fast Startup: Defer initial DB reads and Firestore network verification to background IO
+        // with a short delay so the main UI frame renders immediately on cold start
+        viewModelScope.launch(Dispatchers.IO) {
+            loadInitialProfile()
+            seedSampleDataIfEmpty()
+            delay(1200)
             com.example.data.firebase.FirebaseAuthManager.currentUser.collect { user ->
                 if (user != null) {
                     testFirestoreConnectionAndSync()
@@ -219,6 +241,118 @@ class AdvisorViewModel(application: Application) : AndroidViewModel(application)
 
     fun selectTab(tab: AppTab) {
         _currentTab.value = tab
+    }
+
+    // --- Seasonal Fashion Trend Analyzer ---
+    val savedTrends: StateFlow<List<SeasonalTrendEntity>> = repository.getAllTrends()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun analyzeSeasonalTrends(
+        request: SeasonalTrendRequest,
+        onComplete: ((SeasonalTrendAnalysisResult) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            _isAnalyzingTrends.value = true
+            _trendAnalysisError.value = null
+            try {
+                val result = repository.analyzeSeasonalFashionTrends(request)
+                result.onSuccess { analysis ->
+                    _seasonalTrendResult.value = analysis
+                    onComplete?.invoke(analysis)
+                }.onFailure { ex ->
+                    _trendAnalysisError.value = ex.localizedMessage ?: "ট্রেন্ড বিশ্লেষণ সম্পন্ন করা যায়নি।"
+                }
+            } catch (e: Exception) {
+                _trendAnalysisError.value = e.localizedMessage ?: "অপ্রত্যাশিত ত্রুটি ঘটেছে।"
+            } finally {
+                _isAnalyzingTrends.value = false
+            }
+        }
+    }
+
+    fun saveCurrentTrend(onComplete: ((Long) -> Unit)? = null) {
+        val current = _seasonalTrendResult.value ?: return
+        viewModelScope.launch {
+            val entity = SeasonalTrendEntity(
+                season = current.season,
+                category = current.category,
+                targetMarket = current.targetMarket,
+                priceTier = current.economics.recommendedMSRP,
+                headlineSummary = current.headlineSummary,
+                keyFabrics = current.fabrics.joinToString(", ") { "${it.fabricName} (${it.gsmWeight})" },
+                keyColors = current.colorPalette.joinToString(", ") { "${it.name} (${it.hexCode})" },
+                topSilhouettes = current.silhouettes.joinToString(", ") { it.title },
+                fullReportMarkdown = current.fullReportMarkdown,
+                timestamp = System.currentTimeMillis()
+            )
+            val id = repository.saveTrend(entity)
+            onComplete?.invoke(id)
+        }
+    }
+
+    fun deleteSavedTrend(id: Long) {
+        viewModelScope.launch {
+            repository.deleteTrend(id)
+        }
+    }
+
+    fun loadSavedTrendIntoView(trend: SeasonalTrendEntity) {
+        val colors = trend.keyColors.split(", ").mapNotNull {
+            val hexMatch = Regex("#([0-9a-fA-F]{6})").find(it)?.value ?: "#7D9D8B"
+            val name = it.substringBefore(" (").ifBlank { "Trend Color" }
+            TrendColor(name, hexMatch, "সংরক্ষিত ট্রেন্ড কালার", true)
+        }
+        val fabrics = trend.keyFabrics.split(", ").map {
+            FabricRecommendation(
+                fabricName = it,
+                gsmWeight = "Standard Specs",
+                yarnCount = "Standard",
+                composition = "100% Quality Fabric",
+                drapeFeel = "Recommended Drape",
+                shrinkageExpectation = "Pre-shrunk",
+                sourcingHub = "Local & Global Markets",
+                proTip = "Use premium stitching and finishing."
+            )
+        }
+        val silhouettes = trend.topSilhouettes.split(", ").map {
+            SilhouetteRecommendation(it, "সংরক্ষিত ট্রেন্ড সিলুয়েট", "জনপ্রিয় বাণিজ্যিক কাট")
+        }
+        val economics = EntrepreneurEconomics(
+            estimatedCogs = "সংরক্ষিত রিপোর্ট দেখুন",
+            recommendedMSRP = trend.priceTier,
+            grossMargin = "৬৫%+",
+            breakEvenUnits = "৫০-৬০ পিস",
+            roiInsight = "উদ্যোক্তা লাভজনকতা নিশ্চিত"
+        )
+        val loaded = SeasonalTrendAnalysisResult(
+            headlineSummary = trend.headlineSummary,
+            season = trend.season,
+            category = trend.category,
+            targetMarket = trend.targetMarket,
+            colorPalette = if (colors.isNotEmpty()) colors else listOf(TrendColor("Sage", "#7D9D8B", "Classic", true)),
+            silhouettes = silhouettes,
+            fabrics = fabrics,
+            designDetails = emptyList(),
+            economics = economics,
+            goToMarket = emptyList(),
+            fullReportMarkdown = trend.fullReportMarkdown,
+            timestamp = trend.timestamp
+        )
+        _seasonalTrendResult.value = loaded
+    }
+
+    fun sendTrendToChat(trend: SeasonalTrendAnalysisResult) {
+        val prompt = "আমি ${trend.season}-এর জন্য '${trend.category}' কালেকশন তৈরি করতে চাই।\n" +
+                "টার্গেট মার্কেট: ${trend.targetMarket}\n" +
+                "প্রধান কালার: ${trend.colorPalette.joinToString { it.name }}\n" +
+                "প্রস্তাবিত ফ্যাব্রিক: ${trend.fabrics.firstOrNull()?.fabricName ?: "Combed Cotton"} (${trend.fabrics.firstOrNull()?.gsmWeight ?: "240 GSM"})\n" +
+                "এই কালেকশনের সোশ্যাল মিডিয়া প্রমোশন, ফেসবুক/ইনস্টাগ্রাম ক্যাপশন এবং প্রথম ড্রপের বিজ্ঞাপনী স্লোগান তৈরি করে দিন।"
+        selectMainTab(MainAppTab.AI_CHAT)
+        sendChatMessage(prompt)
     }
 
     // --- Sales Records ---

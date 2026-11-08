@@ -160,3 +160,18 @@ interface MonthlyFinanceDao {
     suspend fun clearAllFinances()
 }
 
+@Dao
+interface TrendDao {
+    @Query("SELECT * FROM seasonal_trends ORDER BY timestamp DESC")
+    fun getAllTrends(): Flow<List<SeasonalTrendEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrend(trend: SeasonalTrendEntity): Long
+
+    @Query("DELETE FROM seasonal_trends WHERE id = :id")
+    suspend fun deleteTrend(id: Long)
+
+    @Query("SELECT * FROM seasonal_trends WHERE id = :id LIMIT 1")
+    suspend fun getTrendById(id: Long): SeasonalTrendEntity?
+}
+

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
@@ -43,6 +45,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
@@ -123,6 +126,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
 
     var showApiKeysDialog by remember { mutableStateOf(false) }
     var showTopMoreMenu by remember { mutableStateOf(false) }
+    var showTrendsSheetInActivity by remember { mutableStateOf(false) }
 
     val currentSession = allSessions.find { it.id == currentSessionId }
 
@@ -303,6 +307,37 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                                         modifier = Modifier.testTag("menu_api_keys_item")
                                     )
 
+                                     HorizontalDivider()
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    "মৌসুমি ফ্যাশন ট্রেন্ডস",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    "সিজনাল ফ্যাব্রিক, জিএসএম ও কস্টিং",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00C853)
+                                            )
+                                        },
+                                        onClick = {
+                                            showTopMoreMenu = false
+                                            showTrendsSheetInActivity = true
+                                        },
+                                        modifier = Modifier.testTag("menu_trends_item")
+                                    )
+
                                     HorizontalDivider()
 
                                     DropdownMenuItem(
@@ -351,7 +386,6 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                         title = {
                             Text(
                                 text = when (selectedMainTab) {
-                                    MainAppTab.TRENDS -> "ফ্যাশন ট্রেন্ড অ্যানালাইজার"
                                     MainAppTab.NEW_SALE -> "মাসিক ফাইন্যান্স (Sale)"
                                     else -> "Firebase Firestore"
                                 },
@@ -445,48 +479,7 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             }
                         }
 
-                        // 2. Trends Tab
-                        val isTrends = selectedMainTab == MainAppTab.TRENDS
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) { viewModel.selectMainTab(MainAppTab.TRENDS) }
-                                .padding(horizontal = 12.dp)
-                                .testTag("nav_item_trends")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                                contentDescription = "Fashion Trends",
-                                tint = if (isTrends) Color(0xFF00C853) else Color(0xFF64748B),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "ট্রেন্ডস",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = if (isTrends) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 12.sp
-                                ),
-                                color = if (isTrends) Color(0xFF00C853) else Color(0xFF64748B)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            if (isTrends) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(36.dp)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color(0xFF00C853))
-                                )
-                            } else {
-                                Spacer(modifier = Modifier.height(3.dp))
-                            }
-                        }
-
-                        // 3. Sale Tab
+                        // 2. Sale Tab
                         val isSale = selectedMainTab == MainAppTab.NEW_SALE
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -586,11 +579,6 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                             }
                         )
                     }
-                    MainAppTab.TRENDS -> {
-                        SeasonalTrendsScreen(
-                            viewModel = viewModel
-                        )
-                    }
                     MainAppTab.NEW_SALE -> {
                         NewSaleScreen(
                             viewModel = viewModel
@@ -602,6 +590,57 @@ fun MainAppContainer(viewModel: AdvisorViewModel) {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    if (showTrendsSheetInActivity) {
+        ModalBottomSheet(
+            onDismissRequest = { showTrendsSheetInActivity = false },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.92f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                            contentDescription = null,
+                            tint = Color(0xFF00C853),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "মৌসুমি ফ্যাশন ট্রেন্ড অ্যানালাইজার",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF1E293B)
+                        )
+                    }
+                    IconButton(
+                        onClick = { showTrendsSheetInActivity = false },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color(0xFF64748B)
+                        )
+                    }
+                }
+                SeasonalTrendsScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

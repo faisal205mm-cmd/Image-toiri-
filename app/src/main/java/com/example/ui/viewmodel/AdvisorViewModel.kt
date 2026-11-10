@@ -43,7 +43,6 @@ import java.util.Locale
 
 enum class MainAppTab(val title: String, val bnTitle: String) {
     AI_CHAT("AI Chat", "AI চ্যাট"),
-    TRENDS("Fashion Trends", "ট্রেন্ডস"),
     NEW_SALE("Sale", "Sale"),
     FIREBASE_DB("Firebase DB", "ফায়ারবেস DB")
 }

@@ -47,7 +47,7 @@ object FirebaseAuthManager {
         scope: CoroutineScope,
         onSuccess: (FirebaseUser) -> Unit,
         onError: (String) -> Unit,
-        onCancelled: () -> Unit = {}
+        onCancelled: (reason: String?) -> Unit = {}
     ) {
         val clientId = try {
             activity.getString(R.string.default_web_client_id)
@@ -85,7 +85,7 @@ object FirebaseAuthManager {
                 }
             } catch (e: GetCredentialCancellationException) {
                 Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-                onCancelled()
+                onCancelled(e.message)
             } catch (e: Exception) {
                 Log.e(TAG, "Google Sign-In failed: ${e.message}", e)
                 onError(e.localizedMessage ?: "Google Sign-In failed")

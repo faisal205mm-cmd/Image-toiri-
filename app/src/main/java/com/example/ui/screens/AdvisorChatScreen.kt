@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,7 +51,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -172,6 +175,7 @@ fun AdvisorChatScreen(
     val listState = rememberLazyListState()
     var showClearDialog by remember { mutableStateOf(false) }
     var showMediaAttachMenu by remember { mutableStateOf(false) }
+    var showTrendsSheet by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -888,6 +892,51 @@ fun AdvisorChatScreen(
                             }
                         }
                     }
+
+                    // 5. Seasonal Fashion Trends Option
+                    Surface(
+                        onClick = {
+                            showMediaAttachMenu = false
+                            showTrendsSheet = true
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFE8F5E9),
+                        border = BorderStroke(1.dp, Color(0xFF00C853).copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("sheet_fashion_trends")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF00C853)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "🔥 মৌসুমি ফ্যাশন ট্রেন্ডস (Seasonal Trends)",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF007A3D)
+                                )
+                                Text(
+                                    text = "সিজনাল ফ্যাব্রিক, জিএসএম, কালার প্যালেট ও ইউনিট কস্ট",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF1B5E20)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -962,7 +1011,7 @@ fun AdvisorChatScreen(
                     // Left Green Circular Add Button (+)
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00C853))
                             .clickable { showMediaAttachMenu = true }
@@ -973,7 +1022,7 @@ fun AdvisorChatScreen(
                             imageVector = if (attachedMedia != null) Icons.Default.Check else Icons.Default.Add,
                             contentDescription = "Add Option",
                             tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
@@ -1064,7 +1113,61 @@ fun AdvisorChatScreen(
         }
     }
 }
+
+    // Modal Bottom Sheet displaying Seasonal Trends directly inside AI Chat tab
+    if (showTrendsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showTrendsSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.92f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                            contentDescription = null,
+                            tint = Color(0xFF00C853),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "মৌসুমি ফ্যাশন ট্রেন্ড অ্যানালাইজার",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF1E293B)
+                        )
+                    }
+                    IconButton(
+                        onClick = { showTrendsSheet = false },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color(0xFF64748B)
+                        )
+                    }
+                }
+                SeasonalTrendsScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
 }
+
 
 
 
@@ -1089,18 +1192,18 @@ fun EmptyChatGreeting(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 24.dp)
+            modifier = Modifier.padding(horizontal = 20.dp)
         ) {
             // Glowing Green & Lime Orb
             Box(
                 modifier = Modifier
-                    .size(176.dp),
+                    .size(136.dp),
                 contentAlignment = Alignment.Center
             ) {
                 // Soft outer ambient glow
                 Box(
                     modifier = Modifier
-                        .size(176.dp)
+                        .size(136.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
@@ -1116,7 +1219,7 @@ fun EmptyChatGreeting(
                 // Central Gradient Badge: Green (#00C853) to Lime (#CDDC39)
                 Box(
                     modifier = Modifier
-                        .size(138.dp)
+                        .size(108.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -1126,8 +1229,8 @@ fun EmptyChatGreeting(
                                     Color(0xFFAEEA00),
                                     Color(0xFFCDDC39)
                                 ),
-                                start = Offset(0f, 138f),
-                                end = Offset(138f, 0f)
+                                start = Offset(0f, 108f),
+                                end = Offset(108f, 0f)
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -1136,44 +1239,45 @@ fun EmptyChatGreeting(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = "AI Sparkle",
                         tint = Color.White,
-                        modifier = Modifier.size(68.dp)
+                        modifier = Modifier.size(54.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Greeting Headline from Screenshot: কিভাবে আপনাকে সাহায্য করতে পারি?
             Text(
                 text = "কিভাবে আপনাকে সাহায্য করতে পারি?",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 21.sp
+                    fontSize = 19.sp
                 ),
                 color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Greeting Subtitle from Screenshot: আপনার প্রশ্ন লিখুন, আমি আছি আপনার সাথে
             Text(
                 text = "আপনার প্রশ্ন লিখুন, আমি আছি আপনার সাথে",
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 ),
                 color = Color(0xFF94A3B8)
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Rounded Green Indicator Accent Bar
             Box(
                 modifier = Modifier
                     .width(44.dp)
-                    .height(3.5.dp)
+                    .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(Color(0xFF00E676))
             )
+
         }
     }
 }

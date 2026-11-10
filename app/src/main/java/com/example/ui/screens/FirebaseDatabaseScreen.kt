@@ -200,9 +200,14 @@ fun FirebaseDatabaseScreen(
                                             isAuthLoading = false
                                             Toast.makeText(context, "Google Sign-In: $error", Toast.LENGTH_LONG).show()
                                         },
-                                        onCancelled = {
+                                        onCancelled = { reason ->
                                             isAuthLoading = false
-                                            Toast.makeText(context, "সাইন-ইন বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                            val msg = if (!reason.isNullOrBlank() && !reason.contains("canceled", ignoreCase = true)) {
+                                                "সাইন-ইন সমস্যা: $reason"
+                                            } else {
+                                                "সাইন-ইন বাতিল করা হয়েছে"
+                                            }
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
